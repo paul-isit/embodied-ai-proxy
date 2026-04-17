@@ -41,7 +41,19 @@ Testing & Troubleshooting:
 
 Command Suite -
 
-Test CaseCommandExpected ResultValid Movepython3 ask_llama.py "rotate 90 degrees"SUCCESS with JSON payload.Invalid Movepython3 ask_llama.py "fly to the ceiling"BLOCKED (Safety whitelist triggered).Not Applicable / Invalidpython3 ask_llama.py "tell me a joke"BLOCKED (No valid actions detected).
+Test Case
+Command
+Expected Result
+Valid Move
+python3 ask_llama.py "rotate 90 degrees"
+SUCCESS with JSON payload.
+Invalid Move
+python3 ask_llama.py "fly to the ceiling"
+BLOCKED (Safety whitelist triggered).
+Not Applicable / Invalid
+python3 ask_llama.py "tell me a joke"
+BLOCKED (No valid actions detected).
+
 Troubleshooting
 
 ? Error: Connection Refused
@@ -55,6 +67,3 @@ The original ask_llama.py was utilized as a standalone CLI tool, this package fa
 1) Ongoing persistent services: Unlike the original script which executed single commands prior to closing, the Proxy is constantly running and capable for ROS2 integration
 2) Separation of concerns: ask_llama.py now only handles display, while logic and safety parameters exist in llm_proxy.py
 3) Intent validation: LLM is bound by negative constraint prompt, ensuring LLM does not guess but explicitly reject commands that are not on whitelist, adhering to core requirement of physical hardware safety.
-
-
-
