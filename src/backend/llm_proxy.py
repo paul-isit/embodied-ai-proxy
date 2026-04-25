@@ -7,12 +7,12 @@ from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
 
 
 class LLMConfig(BaseModel):
-    provider: str 
-    model: str 
-    base_url: str 
-    api_key: str 
-    max_tokens:int 
-    temperature: float 
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    max_tokens:int
+    temperature: float
     timeout_seconds: int
 
 class StepSchema(BaseModel):
@@ -27,8 +27,8 @@ class JSONSchema(BaseModel):
     steps: List[StepSchema]
 
 class SystemConfig(BaseModel):
-    llm: LLMConfig 
-    json_schema: JSONSchema 
+    llm: LLMConfig
+    json_schema: JSONSchema
     system_prompt: str
 
 
@@ -40,37 +40,37 @@ class LLMProxy:
         """
         self.bridge_url = bridge_url
         self.system_config = self._load_config(config_path)
-        
+
         # Simulated Hugging Face initialization
         # self.tokenizer = AutoTokenizer.from_pretrained("...")
         # self.model = AutoModelForCausalLM.from_pretrained("...")
 
     def _load_json_file(self, path: Path, filename: str) -> dict:
         """
-        Helper function to load the JSON files 
+        Helper function to load the JSON files
         """
         try:
             with open(path / filename, "r") as f:
                 return json.load(f)
         #Error handling for json files
-        except FileNotFoundError: 
+        except FileNotFoundError:
             logging.error(f"{filename} not found. Please provide a valid config path.")
             raise
         except json.JSONDecodeError as e:
             logging.error(f"Invalid JSON in {filename}: {e}")
-            raise 
+            raise
 
 
     def _load_config(self, config_path):
         """
-        Load each of the context JSON files and maps them to their respective dataclasses. 
-        """ 
+        Load each of the context JSON files and maps them to their respective dataclasses.
+        """
         path = Path(config_path)
 
-        #Load the json files using the helper function 
+        #Load the json files using the helper function
         llm_config = self._load_json_file(path, "llm_config.json")
         json_schema = self._load_json_file(path, "json_schema.json")
-        
+
         #Default system prompt file set to system_prompt.md
         system_prompt_path = path / "system_prompt.md"
 
