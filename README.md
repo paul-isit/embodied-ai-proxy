@@ -41,9 +41,11 @@ embodied-ai-proxy/
         ├── json_validator.py       # LLM output verification
         ├── llm_handler.py          # Model loading and inference
         └── llm_proxy.py            # Main backbone class for the proxy server
+```
 
 ## Running the proxy with TUI
 
 ```bash
 pip install -r src/requirements.txt
 python3 main.py
+```
