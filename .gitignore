@@ -1,0 +1,15 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Output files from bulk testing
+test*-result.txt
+
+# Textual logs (if you ever enable them)
+textual.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
