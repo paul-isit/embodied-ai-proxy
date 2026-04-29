@@ -1,4 +1,40 @@
 import json
+from dataclasses import dataclass
+
+@dataclass
+class LLMConfig:
+    provider: str 
+    model: str 
+    base_url: str 
+    api_key: str 
+    max_tokens:int 
+    temperature: str 
+    timeout_seconds: int
+
+@dataclass
+class JSONSchema:
+    required_fields: list
+    step_required_fields: list
+    allowed_actions: list
+    allowed_directions: list
+    gripper_state: list
+    allowed_parameters: dict
+    parameter_ranges: dict
+    coordinates: dict
+
+@dataclass
+class SystemPromptContext:
+    robot: str 
+    instructions: str 
+    workspace_description: str
+    response_format: dict
+
+@dataclass
+class Config:
+    llm: LLMConfig 
+    json_schema: JSONSchema 
+    system_prompt_context: SystemPromptContext
+
 
 class LLMProxy:
     def __init__(self, bridge_url: str = "http://localhost:9090", config_path: str = ""):
@@ -13,9 +49,32 @@ class LLMProxy:
         # self.tokenizer = AutoTokenizer.from_pretrained("...")
         # self.model = AutoModelForCausalLM.from_pretrained("...")
 
-    def _load_config(self, filepath: str) -> str:
-        """Reads config.txt to get the base instructions and JSON schema rules."""
-        return "Dummy System Prompt"
+
+
+    def load_context():
+        """
+        Load each of the context JSON files and return
+        """
+        with open("context_llm.json", "r") as f:
+            llm_config = json.load(f)
+
+        with open("context_json_schema.json", "r") as f:
+            json_schema = json.load(f)
+
+        with open("context_system_prompt.json", "r") as f:
+            system_prompt = json.load(f)
+
+        return Config(
+            llm=LLMConfig(**llm_config),
+            json_schema=JSONSchema(**json_schema),
+            system_prompt_context=SystemPromptContext(**system_prompt)
+        )
+    
+    config = load_context()
+
+
+
+
 
     def get_environment_context(self) -> list[str]:
         """
