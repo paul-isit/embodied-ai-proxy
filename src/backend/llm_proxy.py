@@ -1,49 +1,44 @@
 import json
-from dataclasses import dataclass
+import logging
+from pathlib import Path
+from pydantic import BaseModel
+from typing import List, Dict, Optional, Any
 
-@dataclass
-class LLMConfig:
+
+class LLMConfig(BaseModel):
     provider: str 
     model: str 
     base_url: str 
     api_key: str 
     max_tokens:int 
-    temperature: str 
+    temperature: float 
     timeout_seconds: int
 
-@dataclass
-class JSONSchema:
-    required_fields: list
-    step_required_fields: list
-    allowed_actions: list
-    allowed_directions: list
-    gripper_state: list
-    allowed_parameters: dict
-    parameter_ranges: dict
-    coordinates: dict
+class StepSchema(BaseModel):
+    step_id: int
+    action: str
+    description: str
+    parameters: Optional[Dict[str, Any]] = None
 
-@dataclass
-class SystemPromptContext:
-    robot: str 
-    instructions: str 
-    workspace_description: str
-    response_format: dict
 
-@dataclass
-class Config:
+class JSONSchema(BaseModel):
+    recipe_name: str
+    steps: List[StepSchema]
+
+class SystemConfig(BaseModel):
     llm: LLMConfig 
     json_schema: JSONSchema 
-    system_prompt_context: SystemPromptContext
+    system_prompt: str
 
 
 class LLMProxy:
-    def __init__(self, bridge_url: str = "http://localhost:9090", config_path: str = ""):
+    def __init__(self, config_path: str, bridge_url: str = "http://localhost:9090"):
         """
         Initialize the proxy, load the system prompts from config.txt, 
         and spin up the Hugging Face model in memory.
         """
         self.bridge_url = bridge_url
-        # self.system_prompt_template = self._load_config(config_path)
+        self.system_config = self._load_config(config_path)
         
         # Simulated Hugging Face initialization
         # self.tokenizer = AutoTokenizer.from_pretrained("...")
@@ -51,28 +46,55 @@ class LLMProxy:
 
 
 
-    def load_context():
+    def _load_config(self, config_path):
         """
-        Load each of the context JSON files and return
-        """
-        with open("context_llm.json", "r") as f:
-            llm_config = json.load(f)
+        Load each of the context JSON files and maps them to their respective dataclasses. 
+        """ 
+        path = Path(config_path)
 
-        with open("context_json_schema.json", "r") as f:
-            json_schema = json.load(f)
+        try:
+            with open(path / "llm_config.json", "r") as f:
+                llm_config = json.load(f)
+        #Error handling for context_llm.json file 
+        except FileNotFoundError: 
+            logging.error("llm_config.json not found. Please provide a valid config path.")
+            raise
+        except json.JSONDecodeError as e:
+            logging.error(f"Invalid JSON in llm_config.json: {e}")
+            raise 
 
-        with open("context_system_prompt.json", "r") as f:
-            system_prompt = json.load(f)
+        try:
+            with open(path / "json_schema.json", "r") as f:
+                json_schema = json.load(f)
+        #Error handling for context_json_schema.json file 
+        except FileNotFoundError:
+            logging.error("json_schema.json not found. Please provide a valid config path.")
+            raise
+        except json.JSONDecodeError as e:
+            logging.error(f"Invalid JSON in json_schema.json: {e}")
+            raise
+        
+        #Default system prompt file set to context_system_prompt.md
+        default_system_prompt_path = path / "context_system_prompt.md"
+        system_prompt_path = path / "context_system_prompt.md"
 
-        return Config(
+        if system_prompt_path.exists():
+            logging.info(f"Loading system prompt from: {system_prompt_path}")
+            with open(system_prompt_path, "r") as f:
+                system_prompt = f.read()
+        else:
+            logging.warning(
+                f"context_system_prompt.md not found at {system_prompt_path}. "
+                f"Falling back to default system prompt."
+            )
+            with open(default_system_prompt_path, "r") as f:
+                system_prompt = f.read()
+
+        return SystemConfig(
             llm=LLMConfig(**llm_config),
             json_schema=JSONSchema(**json_schema),
-            system_prompt_context=SystemPromptContext(**system_prompt)
+            system_prompt=system_prompt
         )
-    
-    config = load_context()
-
-
 
 
 
@@ -83,11 +105,34 @@ class LLMProxy:
         """
         return ['blue_block', 'red_cube', 'table', 'window']
 
-    def build_prompt(self, user_text: str, available_objects: list[str]) -> str:
+
+
+
+    def build_prompt(self, user_text: str, available_objects: List[str]) -> str:
         """
-        Injects the available objects and the user's command into the system prompt.
+        Builds the final prompt sent to the LLM.
+        It injects:
+        - the system prompt (robot rules)
+        - the recipe schema template
+        - the list of valid target objects
+        - the user's natural language command
         """
-        return f"Valid targets are {available_objects}. User command: {user_text}"
+
+        schema_block = json.dumps(self.system_config.json_schema.model_dump(), indent=2)
+
+        return (
+            f"{self.system_config.system_prompt}\n\n"
+            f"### Recipe Schema Template\n"
+            f"{schema_block}\n\n"
+            f"### Available Objects\n"
+            f"{available_objects}\n\n"
+            f"### User Command\n"
+            f"{user_text}\n\n"
+            f"### Task\n"
+            f"Generate a valid JSON recipe following the schema above. "
+            f"Only use allowed actions. Never output anything except JSON."
+        )
+
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
         """
@@ -100,6 +145,8 @@ class LLMProxy:
             return '{"action": "move_to", "target": "window"}'
         else:
             return '{"action": "unknown", "target": "unknown"}'
+
+
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
         """

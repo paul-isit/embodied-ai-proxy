@@ -1,0 +1,22 @@
+{
+    "required_fields": ["recipe_name", "steps"],
+    "step_required_fields": ["step_id", "action"],
+    "allowed_actions": ["home", "move_arm", "gripper", "relative_move"],
+    "allowed_directions": ["move_upwards", "move_downwards", "move_left", "move_right"],
+    "gripper_state": ["open", "closed"],
+    "allowed_parameters": {
+        "move_arm": ["target"],
+        "gripper": ["position"],
+        "relative_move": ["vector"],
+        "home": []
+    },
+    "parameter_ranges": {
+        "gripper_position": { "min": 0.0, "max": 1.0 },
+        "relative_move_distance": { "min": 0.0, "max": 0.5 }
+    },
+    "coordinates": {
+        "x": { "type": "float", "min": 0.0, "max": 0.0 },
+        "y": { "type": "float", "min": 0.0, "max": 0.0 },
+        "z": { "type": "float", "min": 0.0, "max": 0.0 }
+    }
+}

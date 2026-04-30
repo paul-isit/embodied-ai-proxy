@@ -68,6 +68,12 @@ class EmbodiedProxyApp(App):
         """Called from the background thread to safely update the UI."""
         # Format the output using Textual's rich markup instead of hardcoded emojis
         log_text = ""
+
+        #Print the system prompt 
+        if result["prompt"]:
+            log_text += f"[bold yellow]FULL PROMPT:[/bold yellow]\n"
+            log_text += f"[dim]{result['prompt']}[/dim]\n"
+            log_text += f"---\n"
         
         if result["json"]:
             log_text += f"Validated JSON: {result['json']}\n"

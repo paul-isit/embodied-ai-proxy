@@ -1,0 +1,63 @@
+{
+  "recipe_name": "string",
+  "steps": [
+    {
+      "step_id": 1,
+      "action": "home",
+      "description": "Always start at home position"
+    },
+    {
+      "step_id": 2,
+      "action": "gripper",
+      "parameters": {
+        "position": "float (0.0 = closed, 1.0 = open)"
+      },
+      "description": "string"
+    },
+    {
+      "step_id": 3,
+      "action": "move_arm",
+      "parameters": {
+        "target": "string (name of target object or location)"
+      },
+      "description": "string"
+    },
+    {
+      "step_id": 4,
+      "action": "gripper",
+      "parameters": {
+        "position": "float (0.0 = closed, 1.0 = open)"
+      },
+      "description": "string"
+    },
+    {
+      "step_id": 5,
+      "action": "relative_move",
+      "parameters": {
+        "vector": "string (move_upwards, move_downwards, move_left, move_right)"
+      },
+      "description": "string"
+    },
+    {
+      "step_id": 6,
+      "action": "move_arm",
+      "parameters": {
+        "target": "string (name of target object or location)"
+      },
+      "description": "string"
+    },
+    {
+      "step_id": 7,
+      "action": "gripper",
+      "parameters": {
+        "position": "float (0.0 = closed, 1.0 = open)"
+      },
+      "description": "string"
+    },
+    {
+      "step_id": 8,
+      "action": "home",
+      "description": "Always return to home position"
+    }
+  ]
+}
