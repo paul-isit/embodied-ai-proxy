@@ -3,8 +3,8 @@ from src.backend.llm_proxy import LLMProxy
 
 def main():
 
-
-    proxy = LLMProxy()
+    config_path = "configs/"
+    proxy = LLMProxy(config_path=config_path)
     app = EmbodiedProxyApp(proxy)
     app.run()
 
