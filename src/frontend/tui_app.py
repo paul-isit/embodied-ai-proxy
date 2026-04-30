@@ -4,7 +4,7 @@ from textual.widgets import Header, Footer, Input, RichLog
 from src.backend.llm_proxy import LLMProxy
 
 class EmbodiedProxyApp(App):
-    """A Textual app for the Embodied AI Proxy."""
+    """A Textual app for the Embodied AI Proxy.""" 
 
     CSS = """
     Screen {
