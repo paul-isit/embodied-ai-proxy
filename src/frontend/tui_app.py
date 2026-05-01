@@ -4,7 +4,7 @@ from textual.widgets import Header, Footer, Input, RichLog
 from src.backend.llm_proxy import LLMProxy
 
 class EmbodiedProxyApp(App):
-    """A Textual app for the Embodied AI Proxy."""
+    """A Textual app for the Embodied AI Proxy.""" 
 
     CSS = """
     Screen {
@@ -68,6 +68,12 @@ class EmbodiedProxyApp(App):
         """Called from the background thread to safely update the UI."""
         # Format the output using Textual's rich markup instead of hardcoded emojis
         log_text = ""
+
+        #Print the system prompt 
+        if result["prompt"]:
+            log_text += f"[bold yellow]FULL PROMPT:[/bold yellow]\n"
+            log_text += f"[dim]{result['prompt']}[/dim]\n"
+            log_text += f"---\n"
         
         if result["json"]:
             log_text += f"Validated JSON: {result['json']}\n"
