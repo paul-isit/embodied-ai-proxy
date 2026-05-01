@@ -47,7 +47,7 @@ class LLMProxy:
 
     def _load_json_file(self, path: Path, filename: str) -> dict:
         """
-        Helped function to load the JSON files 
+        Helper function to load the JSON files 
         """
         try:
             with open(path / filename, "r") as f:
@@ -68,8 +68,8 @@ class LLMProxy:
         path = Path(config_path)
 
         #Load the json files using the helper function 
-        llm_config = self._load_json_file(path, "context_llm.json")
-        json_schema = self._load_json_file(path, "context_json_schema.json")
+        llm_config = self._load_json_file(path, "llm_config.json")
+        json_schema = self._load_json_file(path, "json_schema.json")
         
         #Default system prompt file set to context_system_prompt.md
         default_system_prompt_path = path / "context_system_prompt.md"
