@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
+from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
 
 
 class LLMConfig(BaseModel):
@@ -44,6 +45,20 @@ class LLMProxy:
         # self.tokenizer = AutoTokenizer.from_pretrained("...")
         # self.model = AutoModelForCausalLM.from_pretrained("...")
 
+    def _load_json_file(self, path: Path, filename: str) -> dict:
+        """
+        Helped function to load the JSON files 
+        """
+        try:
+            with open(path / filename, "r") as f:
+                return json.load(f)
+        #Error handling for json files
+        except FileNotFoundError: 
+            logging.error(f"{filename} not found. Please provide a valid config path.")
+            raise
+        except json.JSONDecodeError as e:
+            logging.error(f"Invalid JSON in {filename}: {e}")
+            raise 
 
 
     def _load_config(self, config_path):
@@ -52,43 +67,30 @@ class LLMProxy:
         """ 
         path = Path(config_path)
 
-        try:
-            with open(path / "llm_config.json", "r") as f:
-                llm_config = json.load(f)
-        #Error handling for context_llm.json file 
-        except FileNotFoundError: 
-            logging.error("llm_config.json not found. Please provide a valid config path.")
-            raise
-        except json.JSONDecodeError as e:
-            logging.error(f"Invalid JSON in llm_config.json: {e}")
-            raise 
-
-        try:
-            with open(path / "json_schema.json", "r") as f:
-                json_schema = json.load(f)
-        #Error handling for context_json_schema.json file 
-        except FileNotFoundError:
-            logging.error("json_schema.json not found. Please provide a valid config path.")
-            raise
-        except json.JSONDecodeError as e:
-            logging.error(f"Invalid JSON in json_schema.json: {e}")
-            raise
+        #Load the json files using the helper function 
+        llm_config = self._load_json_file(path, "context_llm.json")
+        json_schema = self._load_json_file(path, "context_json_schema.json")
         
         #Default system prompt file set to context_system_prompt.md
         default_system_prompt_path = path / "context_system_prompt.md"
         system_prompt_path = path / "context_system_prompt.md"
 
+        #Load system prompt
         if system_prompt_path.exists():
             logging.info(f"Loading system prompt from: {system_prompt_path}")
-            with open(system_prompt_path, "r") as f:
-                system_prompt = f.read()
+            try:
+                with open(system_prompt_path, "r") as f:
+                    system_prompt = f.read()
+            #Fall back to hard coded default system prompt if errors occur
+            except Exception as e:
+                logging.warning(f"Failed to read system prompt file: {e}. Falling back to default.")
+                system_prompt = DEFAULT_SYSTEM_PROMPT
         else:
             logging.warning(
                 f"context_system_prompt.md not found at {system_prompt_path}. "
-                f"Falling back to default system prompt."
+                f"Falling back to hardcoded default system prompt."
             )
-            with open(default_system_prompt_path, "r") as f:
-                system_prompt = f.read()
+            system_prompt = DEFAULT_SYSTEM_PROMPT
 
         return SystemConfig(
             llm=LLMConfig(**llm_config),
