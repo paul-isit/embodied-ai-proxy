@@ -71,9 +71,8 @@ class LLMProxy:
         llm_config = self._load_json_file(path, "llm_config.json")
         json_schema = self._load_json_file(path, "json_schema.json")
         
-        #Default system prompt file set to context_system_prompt.md
-        default_system_prompt_path = path / "context_system_prompt.md"
-        system_prompt_path = path / "context_system_prompt.md"
+        #Default system prompt file set to system_prompt.md
+        system_prompt_path = path / "system_prompt.md"
 
         #Load system prompt
         if system_prompt_path.exists():
@@ -87,7 +86,7 @@ class LLMProxy:
                 system_prompt = DEFAULT_SYSTEM_PROMPT
         else:
             logging.warning(
-                f"context_system_prompt.md not found at {system_prompt_path}. "
+                f"system_prompt.md not found at {system_prompt_path}. "
                 f"Falling back to hardcoded default system prompt."
             )
             system_prompt = DEFAULT_SYSTEM_PROMPT
