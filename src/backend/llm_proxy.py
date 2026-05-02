@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import BaseModel, ValidationError
 from typing import List, Dict, Optional, Any
 
+DEFAULT_SYSTEM_PROMPT = "You are a helpful robot assistant. Output strictly in JSON."
+
 # --- PYDANTIC MODELS ---
 
 class LLMConfig(BaseModel):
