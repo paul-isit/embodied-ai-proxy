@@ -14,7 +14,7 @@ class LLMConfig(BaseModel):
     base_url: str 
     api_key: str 
     max_tokens: int 
-    temperature: float
+    temperature: str
     timeout_seconds: int
 
     # Explicitly ignore any unexpected fields in the JSON
