@@ -72,7 +72,11 @@ From project root:
 ```bash
 python3 evaluate_proxy.py \
   --config-dir ./configs \
-  --tests ./tests/basic_tests.yaml / --tests ./tests/extended_tests.yaml
+  --tests ./tests/basic_tests.yaml
+
+python3 evaluate_proxy.py \
+  --config-dir ./configs \
+  --tests ./tests/extended_tests.yaml
 ```
 
 ## Create testing YAML script
