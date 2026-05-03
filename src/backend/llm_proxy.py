@@ -1,9 +1,9 @@
 import json
 import logging
-import sys
 import uuid
 import websocket
 import requests
+import threading
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -47,6 +47,51 @@ class LLMProxy:
         self.llm_config = self.system_config.llm
         self.schema_block = self.system_config.json_schema
         self.system_prompt = self.system_config.system_prompt
+        self.ws = None
+        self.ws_lock = threading.Lock()
+        self.req_lock = threading.Lock()
+        self.pending_requests = {}
+        self.receive_thread = None
+        self.on_connection_change = None
+
+    def connect(self):
+        """Initializes a persistent WebSocket connection and dispatcher thread if one doesn't exist."""
+        with self.ws_lock:
+            if self.ws is None:
+                self.ws = websocket.create_connection(self.bridge_url, timeout=60.0)
+                
+                if self.on_connection_change:
+                    self.on_connection_change(True)
+                    
+                self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+                self.receive_thread.start()
+
+    def _receive_loop(self):
+        """Background thread that listens for incoming WebSocket messages and routes them."""
+        try:
+            while True:
+                result = self.ws.recv()
+                response = json.loads(result)
+                if response.get("op") == "service_response":
+                    req_id = response.get("id")
+                    with self.req_lock:
+                        if req_id in self.pending_requests:
+                            self.pending_requests[req_id]["response"] = response
+                            self.pending_requests[req_id]["event"].set()
+        except Exception as e:
+            logging.error(f"WebSocket receive thread error: {e}")
+            with self.ws_lock:
+                if self.ws:
+                    self.ws.close()
+                self.ws = None
+
+            if self.on_connection_change:
+                self.on_connection_change(False)
+
+            # Wake up all pending requests with error
+            with self.req_lock:
+                for req in self.pending_requests.values():
+                    req["event"].set()
 
     def check_bridge_connection(self) -> bool:
         """
@@ -54,11 +99,10 @@ class LLMProxy:
         Returns True if successful, False otherwise.
         """
         try:
-            # Very short timeout just to check if the server is listening
-            ws = websocket.create_connection(self.bridge_url, timeout=2.0)
-            ws.close()
+            self.connect()
             return True
-        except Exception:
+        except (ConnectionRefusedError, websocket.WebSocketException) as e:
+            logging.debug(f"Bridge connection failed: {e}")
             return False
 
     def _call_ros_service(self, service_name: str, args: dict = None) -> dict:
@@ -75,34 +119,43 @@ class LLMProxy:
             "args": args
         }
 
+        event = threading.Event()
+        with self.req_lock:
+            self.pending_requests[service_id] = {"event": event, "response": None}
+
         try:
-            # Create a synchronous websocket connection
-            ws = websocket.create_connection(self.bridge_url, timeout=60.0) # 60 second timeout for long robot movements
+            # Use persistent websocket connection
+            self.connect()
             
             # Send the request
-            ws.send(json.dumps(call_msg))
+            with self.ws_lock:
+                if self.ws is None:
+                    raise Exception("WebSocket disconnected.")
+                self.ws.send(json.dumps(call_msg))
             logging.info(f"Sent request to service: {service_name}")
             
-            # Block and wait for the response
-            while True:
-                result = ws.recv()
-                response = json.loads(result)
-                
-                # Check if this response matches our request ID
-                if response.get("op") == "service_response" and response.get("id") == service_id:
-                    ws.close()
+            # Wait for response (with timeout to prevent infinite blocking)
+            if not event.wait(timeout=60.0):
+                raise Exception(f"Timeout waiting for response from {service_name}")
+            
+            with self.req_lock:
+                response = self.pending_requests[service_id]["response"]
+            
+            if response is None:
+                 raise Exception("WebSocket connection dropped while waiting for response.")
+
+            if not response.get("result"):
+                error_msg = response.get('values') or 'Service call failed (result: false)'
+                raise Exception(f"ROS Service Error: {error_msg}")
+            
+            return response.get("values", {})
                     
-                    if not response.get("result"):
-                        error_msg = response.get('values') or 'Service call failed (result: false)'
-                        raise Exception(f"ROS Service Error: {error_msg}")
-                    
-                    return response.get("values", {})
-                    
-        except websocket.WebSocketTimeoutException:
-            raise Exception(f"Timeout waiting for response from {service_name}")
         except Exception as e:
-            logging.error(f"WebSocket error: {e}")
-            raise Exception(f"Middleware connection failed: {e}")
+            logging.error(f"Middleware connection failed: {e}")
+            raise Exception(f"Middleware connection failed: {e}") from e
+        finally:
+            with self.req_lock:
+                self.pending_requests.pop(service_id, None)
 
     def _load_json_file(self, path: Path, filename: str) -> dict:
         """
@@ -165,10 +218,9 @@ class LLMProxy:
             response = self._call_ros_service('/get_robot_parameters')
             return response.get('object_list', [])
         except Exception as e:
-            logging.fatal(f"Failed to get environment context from middleware: {e}. Shutting down.")
-            sys.exit(1)
+            raise RuntimeError(f"Failed to get environment context: {e}") from e
 
-    def build_prompt(self, user_text: str, available_objects: List[str]) -> str:
+    def build_prompt(self, user_text: str, available_objects: list[str]) -> str:
         """
         Builds the final prompt sent to the LLM.
         It injects:
@@ -179,9 +231,9 @@ class LLMProxy:
         """
         return (
             f"{self.system_prompt}\n\n"
-            f"### Recipe Schema Template\nThis is the JSON Schema you should strictly follow when generating the JSON output. Understand that this is a template and you will have to modify and fill it based on the user command.\n"
+            f"### Recipe Schema Template\nThis is the JSON Schema you should strictly follow when generating the JSON output. Understand that this is a template and you will have to modify and fill it based on the user command. Make sure that you return the JSON with all the required fields based on the schema. Don't miss out on any of the fields that are mentioned and provided in the JSON schema.\n"
             f"{json.dumps(self.schema_block.model_dump(), indent=2)}\n\n"
-            f"### Available Objects\nThese are the list of available objects in the environment of the robot. ONLY use these objects while generating the JSON. If the user asks about an object which doesn't exist in this list, you need to respond with an error JSON. DO NO INVENT the objects if the user asks you to.\n"
+            f"### Available Objects\nThese are the list of available objects in the environment of the robot. ONLY use these objects while generating the JSON. If the user asks about an object which doesn't exist in this list, you need to respond with an error JSON. DO NO INVENT the objects if the user asks you to. Also, do not change the names of the objects based on your intuition. Strictly adhere and follow the object names that are provided in the object list. The json you return should only have objects mentioned in the object list CASE SENSITIVE.\n"
             f"{available_objects}\n\n"
             f"### User Command\nThis is the user command, please generate the JSON for what the user is asking:\n"
             f"'{user_text}'\n\n"
@@ -198,8 +250,6 @@ class LLMProxy:
                 "temperature": self.llm_config.temperature
             }
         }
-
-        print(f"payload: ", payload)
         try:
             # We add a timeout so the UI doesn't hang forever if the host isn't reachable
             response = requests.post(self.llm_config.base_url, json=payload, timeout=self.llm_config.timeout_seconds)
@@ -220,11 +270,10 @@ class LLMProxy:
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
         """
-        Dummy validation for testing end-to-end pipeline.
-        Attempts to parse the JSON, but falls back to a dummy dict if it fails
-        so the pipeline doesn't crash.
+        Attempts to parse the JSON from the LLM.
+        Raises ValueError if the output is not valid JSON.
         """
-        # this logic needs to be improved
+        # validation logic can be improved
         try:
             clean_text = raw_llm_text.strip()
             if clean_text.startswith("```json"):
@@ -236,10 +285,11 @@ class LLMProxy:
                 clean_text = clean_text[:-3]
                 
             clean_text = clean_text.strip()
-            return json.loads(clean_text)
+            parsed_json_dict = json.loads(clean_text)
+            validated_data = JSONSchema(**parsed_json_dict).model_dump()
+            return validated_data
         except Exception as e:
-            logging.warning(f"Dummy validation fallback used due to parse failure: {e}")
-            return {"dummy_key": "dummy_value", "raw_response": raw_llm_text}
+            raise ValueError(f"Failed to parse LLM output as JSON: {e}") from e
 
     def send_to_middleware(self, validated_json: dict) -> bool:
         """
@@ -259,8 +309,16 @@ class LLMProxy:
         The main orchestrator function called by your User Interface.
         """
         if not self.check_bridge_connection():
-            logging.fatal("Cannot connect to the robot. The rosbridge server is not running on port 9090. Shutting down.")
-            sys.exit(1)
+            logging.error("Cannot connect to the robot. The rosbridge server is not running on port 9090.")
+            return {
+                "prompt": f"User command: {user_text}",
+                "json": None,
+                "execution_result": "failure",
+                "error": "Cannot connect to the robot. The rosbridge server is not running on port 9090."
+            }
+
+        if not user_text.strip():
+            return {"is_dummy": True}
 
         try:
             available_objects = self.get_environment_context()
