@@ -8,21 +8,26 @@ sys.path.append(str(ROOT / "src"))
 
 from backend.llm_proxy import LLMProxy
 
-
 def load_tests(path):
     with open(path, "r") as f:
         data = yaml.safe_load(f)
 
-    return data["tests"]
+    if isinstance(data, dict) and "tests" in data:
+        return data["tests"]
 
+    if isinstance(data, list):
+        return data
+
+    raise ValueError("Invalid test format")
 
 def normalize(obj):
-    """prevents trivial mismatch failures"""
-    return {
-        "action": obj.get("action", "").strip().lower(),
-        "target": obj.get("target", "").strip().lower(),
-    }
+    if not isinstance(obj, dict):
+        return {}
 
+    return {
+        "action": str(obj.get("action", "")).strip().lower(),
+        "target": str(obj.get("target", "")).strip().lower(),
+    }
 
 def run_tests(proxy, tests):
     results = []
@@ -30,33 +35,42 @@ def run_tests(proxy, tests):
     for i, test in enumerate(tests, 1):
 
         if not isinstance(test, dict):
-            print(f"\n[Test {i}] INVALID TEST FORMAT: {test}")
+            print(f"\n[Test {i}] INVALID FORMAT")
             results.append(False)
             continue
 
         name = test.get("name", f"test_{i}")
-        input_text = test.get("prompt")
+        prompt = test.get("prompt", "")
         available_objects = test.get("available_objects", [])
         expected = test.get("expected", {})
 
         print(f"\n[Test {i}] {name}")
 
         try:
-            result = proxy.generate(input_text, available_objects)
-            parsed = result["parsed"]
+            result = proxy.generate(prompt, available_objects)
 
-            if parsed == expected:
+            parsed = result.get("parsed", {})
+
+            expected_norm = normalize(expected)
+            actual_norm = normalize(parsed)
+
+            passed = expected_norm == actual_norm
+
+            if passed:
                 print("  Result: PASS")
-                results.append(True)
             else:
                 print("  Result: FAIL")
-                print("  Expected:", expected)
-                print("  Got     :", parsed)
-                results.append(False)
+
+            print("  Expected:", expected_norm)
+            print("  Got     :", actual_norm)
+
+            results.append(passed)
 
         except Exception as e:
             print("  Result: FAIL (Exception)")
-            print("  Error:", str(e))
+            print("  Expected:", normalize(expected))
+            print("  Got     : None")
+            print("  Error   :", str(e))
             results.append(False)
 
     return results
@@ -77,14 +91,16 @@ def main():
     print("\n--- Running Tests ---")
     results = run_tests(proxy, tests)
 
+    passed = sum(results)
+    total = len(results)
+
     print("\n========================================")
     print(" BULK TEST SUMMARY")
     print("========================================")
-    print(" Total Tests Run :", len(results))
-    print(" Passed          :", sum(results))
-    print(" Failed          :", len(results) - sum(results))
+    print(f" Total Tests Run : {total}")
+    print(f" Passed          : {passed}")
+    print(f" Failed          : {total - passed}")
     print("========================================")
-
 
 if __name__ == "__main__":
     main()
