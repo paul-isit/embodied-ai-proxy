@@ -1,0 +1,90 @@
+import argparse
+import yaml
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+sys.path.append(str(ROOT / "src"))
+
+from backend.llm_proxy import LLMProxy
+
+
+def load_tests(path):
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+
+    return data["tests"]
+
+
+def normalize(obj):
+    """prevents trivial mismatch failures"""
+    return {
+        "action": obj.get("action", "").strip().lower(),
+        "target": obj.get("target", "").strip().lower(),
+    }
+
+
+def run_tests(proxy, tests):
+    results = []
+
+    for i, test in enumerate(tests, 1):
+
+        if not isinstance(test, dict):
+            print(f"\n[Test {i}] INVALID TEST FORMAT: {test}")
+            results.append(False)
+            continue
+
+        name = test.get("name", f"test_{i}")
+        input_text = test.get("prompt")
+        available_objects = test.get("available_objects", [])
+        expected = test.get("expected", {})
+
+        print(f"\n[Test {i}] {name}")
+
+        try:
+            result = proxy.generate(input_text, available_objects)
+            parsed = result["parsed"]
+
+            if parsed == expected:
+                print("  Result: PASS")
+                results.append(True)
+            else:
+                print("  Result: FAIL")
+                print("  Expected:", expected)
+                print("  Got     :", parsed)
+                results.append(False)
+
+        except Exception as e:
+            print("  Result: FAIL (Exception)")
+            print("  Error:", str(e))
+            results.append(False)
+
+    return results
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-dir", required=True)
+    parser.add_argument("--tests", required=True)
+
+    args = parser.parse_args()
+
+    print("--- Initializing LLM Proxy ---")
+    proxy = LLMProxy(args.config_dir)
+    print("Proxy initialized successfully.")
+
+    tests = load_tests(args.tests)
+
+    print("\n--- Running Tests ---")
+    results = run_tests(proxy, tests)
+
+    print("\n========================================")
+    print(" BULK TEST SUMMARY")
+    print("========================================")
+    print(" Total Tests Run :", len(results))
+    print(" Passed          :", sum(results))
+    print(" Failed          :", len(results) - sum(results))
+    print("========================================")
+
+
+if __name__ == "__main__":
+    main()
