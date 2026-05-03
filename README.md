@@ -70,12 +70,13 @@ ros2 launch custom_bridge_pkg proxy_bridge.launch.py
 ```
 *(The bridge is now listening on ws://localhost:9090)*
 
-### Terminal 2: Start the Middleware (or Mock)
-If you are testing without the physical robot middleware, run the mock node:
+### Terminal 2: Start the Middleware
+Run the ROS2 Middleware using rviz2
 ```bash
-source /opt/ros/humble/setup.bash
-source /path/to/your/ROS2-middleware/install/setup.bash
-python3 mock_middleware.py
+cd /path/to/your/ROS2-middleware/
+colcon build
+source install/setup.bash
+ros2 launch kinova_interface robot.launch.py
 ```
 
 ### Terminal 3: Start the Proxy UI
