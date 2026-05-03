@@ -14,6 +14,7 @@ The project is divided into two distinct domains to ensure hardware stability an
 ```text
 embodied-ai-proxy/
 ├── main.py                         # System entry point
+├── evaluate_proxy.py               # Bulk testing from YAML file       
 ├── configs/                        # Configuration and validation rules
 │   ├── system_prompt.txt           # Base instructions for the LLM
 │   └── json_schema.json            # JSON schema for output validation
@@ -27,6 +28,10 @@ embodied-ai-proxy/
 │               ├── __init__.py
 │               └── bridge_node.py  # ROS2 node and WebSocket server
 │
+├── tests                           # YAML files containing test scripts
+|    ├── basic_tests.yaml           # Short list of tests 
+|    └── extended_tests.yaml        # Extended list of tests
+|
 └── src/                            # Domain 2: Python Inference Environment
     ├── requirements.txt            # Python dependencies
     │
