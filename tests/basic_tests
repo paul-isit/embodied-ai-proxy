@@ -1,0 +1,57 @@
+tests:
+
+  - name: Pick apple
+    prompt: "pick up apple"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+  - name: Wave greeting
+    prompt: "wave goodbye"
+    available_objects: []
+    expected:
+      action: "wave"
+      target: "self"
+
+  - name: Invalid object
+    prompt: "pick up car"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "unknown"
+
+  - name: Empty command
+    prompt: ""
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "unknown"
+
+  - name: Ambiguous instruction
+    prompt: "get that thing"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "unknown"
+
+  - name: Verb mismatch
+    prompt: "teleport to apple"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "move"
+      target: "apple"
+
+  - name: Multiple objects
+    prompt: "pick apple and banana"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+  - name: Noise injection
+    prompt: "uhhh maybe pick apple pls thanks"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
