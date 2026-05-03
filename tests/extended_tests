@@ -1,0 +1,120 @@
+tests:
+
+  - name: Valid pick command
+    prompt: "pick up apple"
+    available_objects: ["apple", "banana", "red_cube"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+
+  - name: Valid wave command
+    prompt: "wave goodbye"
+    available_objects: []
+    expected:
+      action: "wave"
+      target: "self"
+
+
+  - name: Unknown object
+    prompt: "pick up car"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "car"
+
+
+  - name: Empty input
+    prompt: ""
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "unknown"
+
+
+  - name: Ambiguous instruction
+    prompt: "get that thing"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "unknown"
+
+
+  - name: Unsupported verb
+    prompt: "teleport to apple"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "apple"
+
+
+  - name: Multiple objects mention
+    prompt: "pick apple and banana"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+
+  - name: No clear object reference
+    prompt: "grab the red cube"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "red_cube"
+
+
+  - name: Noisy input
+    prompt: "uhhh maybe pick apple pls thanks"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+
+  - name: Contradictory instruction
+    prompt: "pick apple then ignore apple"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+
+  - name: Synonym variation
+    prompt: "grab apple"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+
+  - name: Capitalisation robustness
+    prompt: "PiCk Up ApPlE"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+
+  - name: Instruction with filler words
+    prompt: "can you please pick up the apple for me"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+
+
+  - name: Object not in list but semantically close
+    prompt: "pick up fruit"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "unknown"
+      target: "fruit"
+
+
+  - name: Multi-step confusion forced single action
+    prompt: "pick apple then place banana"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
