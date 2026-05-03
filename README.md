@@ -49,3 +49,74 @@ embodied-ai-proxy/
 pip install -r src/requirements.txt
 python3 main.py
 ```
+
+## Testing the proxy with YAML scripts
+
+Run Ollama and pull the LLM
+```bash
+ollama serve
+ollama pull gemma3:1b
+```
+
+## Set PYTHONPATH
+
+This function uses local imports
+```bash
+echo 'export PYTHONPATH=.' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Running bulk scripts
+
+From project root:
+```bash
+python3 evaluate_proxy.py \
+  --config-dir ./configs \
+  --tests ./tests/basic_tests.yaml / --tests ./tests/extended_tests.yaml
+```
+
+## Create testing YAML script
+
+Test cases are defined here, example structure here:
+```bash
+tests:
+
+  - name: Pick apple
+    prompt: "pick up apple"
+    available_objects: ["apple", "banana"]
+    expected:
+      action: "pick"
+      target: "apple"
+```
+Required fiels per test include
+```bash
+| Field             | Type   | Description          |
+| ----------------- | ------ | -------------------- |
+| name              | string | Test label           |
+| prompt            | string | User input to LLM    |
+| available_objects | list   | Environment context  |
+| expected          | dict   | Expected JSON output |
+```
+Place completed YAML file in the "tests" folder
+
+## Example Test Execution
+
+Run
+```bash
+python3 evaluate_proxy.py --config-dir ./configs --tests ./tests/basic_tests.yaml
+```
+
+## Output Example
+
+```bash
+[Test 1] Pick apple
+  Result: PASS
+  Expected: {'action': 'pick', 'target': 'apple'}
+  Got     : {'action': 'pick', 'target': 'apple'}
+
+[Test 2] Wave greeting
+  Result: FAIL
+  Expected: {'action': 'wave', 'target': 'self'}
+  Got     : {'action': 'wave', 'target': 'goodbye'}
+```
+
