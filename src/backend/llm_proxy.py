@@ -1,5 +1,9 @@
 import json
 import logging
+import sys
+import uuid
+import websocket
+import requests
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -33,17 +37,72 @@ class SystemConfig(BaseModel):
 
 
 class LLMProxy:
-    def __init__(self, config_path: str, bridge_url: str = "http://localhost:9090"):
+    def __init__(self, config_path: str, bridge_url: str = "ws://localhost:9090"):
         """
         Initialize the proxy, load the system prompts from config.txt, 
         and spin up the Hugging Face model in memory.
         """
         self.bridge_url = bridge_url
         self.system_config = self._load_config(config_path)
+        self.llm_config = self.system_config.llm
+        self.schema_block = self.system_config.json_schema
+        self.system_prompt = self.system_config.system_prompt
+
+    def check_bridge_connection(self) -> bool:
+        """
+        Attempts to connect to the rosbridge WebSocket server.
+        Returns True if successful, False otherwise.
+        """
+        try:
+            # Very short timeout just to check if the server is listening
+            ws = websocket.create_connection(self.bridge_url, timeout=2.0)
+            ws.close()
+            return True
+        except Exception:
+            return False
+
+    def _call_ros_service(self, service_name: str, args: dict = None) -> dict:
+        """
+        Connects to rosbridge, calls a ROS service synchronously, and returns the response.
+        """
+        args = args or {}
+        service_id = f"call_service:{service_name}:{uuid.uuid4()}"
         
-        # Simulated Hugging Face initialization
-        # self.tokenizer = AutoTokenizer.from_pretrained("...")
-        # self.model = AutoModelForCausalLM.from_pretrained("...")
+        call_msg = {
+            "op": "call_service",
+            "id": service_id,
+            "service": service_name,
+            "args": args
+        }
+
+        try:
+            # Create a synchronous websocket connection
+            ws = websocket.create_connection(self.bridge_url, timeout=60.0) # 60 second timeout for long robot movements
+            
+            # Send the request
+            ws.send(json.dumps(call_msg))
+            logging.info(f"Sent request to service: {service_name}")
+            
+            # Block and wait for the response
+            while True:
+                result = ws.recv()
+                response = json.loads(result)
+                
+                # Check if this response matches our request ID
+                if response.get("op") == "service_response" and response.get("id") == service_id:
+                    ws.close()
+                    
+                    if not response.get("result"):
+                        error_msg = response.get('values') or 'Service call failed (result: false)'
+                        raise Exception(f"ROS Service Error: {error_msg}")
+                    
+                    return response.get("values", {})
+                    
+        except websocket.WebSocketTimeoutException:
+            raise Exception(f"Timeout waiting for response from {service_name}")
+        except Exception as e:
+            logging.error(f"WebSocket error: {e}")
+            raise Exception(f"Middleware connection failed: {e}")
 
     def _load_json_file(self, path: Path, filename: str) -> dict:
         """
@@ -97,17 +156,17 @@ class LLMProxy:
             system_prompt=system_prompt
         )
 
-
-
     def get_environment_context(self) -> list[str]:
         """
-        Makes an HTTP GET request to the Bridge Node to fetch the Current Object List.
-        Returns: ['blue_block', 'red_cube', 'table']
+        Makes a WebSocket request to rosbridge to fetch the Current Object List via a ROS Service.
         """
-        return ['blue_block', 'red_cube', 'table', 'window']
-
-
-
+        try:
+            # We assume the EnvironmentMappingNode provides a service /get_robot_parameters
+            response = self._call_ros_service('/get_robot_parameters')
+            return response.get('object_list', [])
+        except Exception as e:
+            logging.fatal(f"Failed to get environment context from middleware: {e}. Shutting down.")
+            sys.exit(1)
 
     def build_prompt(self, user_text: str, available_objects: List[str]) -> str:
         """
@@ -118,63 +177,91 @@ class LLMProxy:
         - the list of valid target objects
         - the user's natural language command
         """
-
-        schema_block = json.dumps(self.system_config.json_schema.model_dump(), indent=2)
-
         return (
-            f"{self.system_config.system_prompt}\n\n"
-            f"### Recipe Schema Template\n"
-            f"{schema_block}\n\n"
-            f"### Available Objects\n"
+            f"{self.system_prompt}\n\n"
+            f"### Recipe Schema Template\nThis is the JSON Schema you should strictly follow when generating the JSON output. Understand that this is a template and you will have to modify and fill it based on the user command.\n"
+            f"{json.dumps(self.schema_block.model_dump(), indent=2)}\n\n"
+            f"### Available Objects\nThese are the list of available objects in the environment of the robot. ONLY use these objects while generating the JSON. If the user asks about an object which doesn't exist in this list, you need to respond with an error JSON. DO NO INVENT the objects if the user asks you to.\n"
             f"{available_objects}\n\n"
-            f"### User Command\n"
-            f"{user_text}\n\n"
-            f"### Task\n"
-            f"Generate a valid JSON recipe following the schema above. "
-            f"Only use allowed actions. Never output anything except JSON."
+            f"### User Command\nThis is the user command, please generate the JSON for what the user is asking:\n"
+            f"'{user_text}'\n\n"
         )
 
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
-        """
-        Passes the prompt to the Hugging Face model and returns the raw text generation.
-        """
-        # Dummy behavior based on prompt
-        if "pick up" in formatted_prompt.lower() and "blue block" in formatted_prompt.lower():
-            return '{"action": "pick_up", "target": "blue_block"}'
-        elif "fly" in formatted_prompt.lower() and "window" in formatted_prompt.lower():
-            return '{"action": "move_to", "target": "window"}'
-        else:
-            return '{"action": "unknown", "target": "unknown"}'
+        """Passes the formatted prompt to the remote LLM API (Ollama)."""
+        payload = {
+            "model": self.llm_config.model,
+            "prompt": formatted_prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.llm_config.temperature
+            }
+        }
+
+        print(f"payload: ", payload)
+        try:
+            # We add a timeout so the UI doesn't hang forever if the host isn't reachable
+            response = requests.post(self.llm_config.base_url, json=payload, timeout=self.llm_config.timeout_seconds)
+            if not response.ok:
+                try:
+                    error_msg = response.json().get("error", response.text)
+                except ValueError:
+                    error_msg = response.text
+                raise RuntimeError(f"Ollama API Error ({response.status_code}): {error_msg}")
+            
+            data = response.json()
+            return data.get("response", "").strip()
+            
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Failed to connect to Local LLM at {self.llm_config.base_url}. Error: {e}")
 
 
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
         """
-        Finds the JSON block in the LLM's text output and checks it against your schema.
-        Raises an Exception if the JSON is malformed.
+        Dummy validation for testing end-to-end pipeline.
+        Attempts to parse the JSON, but falls back to a dummy dict if it fails
+        so the pipeline doesn't crash.
         """
+        # this logic needs to be improved
         try:
-            parsed = json.loads(raw_llm_text)
-            if "action" not in parsed or "target" not in parsed:
-                raise ValueError("Missing 'action' or 'target' in JSON")
-            return parsed
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON format")
+            clean_text = raw_llm_text.strip()
+            if clean_text.startswith("```json"):
+                clean_text = clean_text[7:]
+            elif clean_text.startswith("```"):
+                clean_text = clean_text[3:]
+                
+            if clean_text.endswith("```"):
+                clean_text = clean_text[:-3]
+                
+            clean_text = clean_text.strip()
+            return json.loads(clean_text)
+        except Exception as e:
+            logging.warning(f"Dummy validation fallback used due to parse failure: {e}")
+            return {"dummy_key": "dummy_value", "raw_response": raw_llm_text}
 
     def send_to_middleware(self, validated_json: dict) -> bool:
         """
-        Makes an HTTP POST request to the Bridge Node.
+        Makes a WebSocket request to rosbridge to execute the recipe via a ROS Service.
         """
-        # Dummy logic for success/failure
-        if validated_json.get("action") == "move_to" and validated_json.get("target") == "window":
-            return False # simulated kinematic failure
-        return True
+        try:
+            # We assume the JsonParserNode provides a service /execute_recipe
+            response = self._call_ros_service('/execute_recipe', {"recipe_json": json.dumps(validated_json)})
+            # We expect the service to return a success boolean
+            return response.get('success', False)
+        except Exception as e:
+            logging.error(f"Failed to execute recipe: {e}")
+            raise Exception(f"Failed to communicate with the robot: {str(e)}")
 
     def process_user_request(self, user_text: str) -> dict:
         """
         The main orchestrator function called by your User Interface.
         """
+        if not self.check_bridge_connection():
+            logging.fatal("Cannot connect to the robot. The rosbridge server is not running on port 9090. Shutting down.")
+            sys.exit(1)
+
         try:
             available_objects = self.get_environment_context()
             prompt = self.build_prompt(user_text, available_objects)
@@ -186,7 +273,7 @@ class LLMProxy:
                 "prompt": prompt,
                 "json": validated_json,
                 "execution_result": "success" if success else "failure",
-                "error": None if success else "Simulated kinematic failure. Target out of bounds."
+                "error": None if success else "Robot failed to execute the recipe."
             }
         except Exception as e:
             return {

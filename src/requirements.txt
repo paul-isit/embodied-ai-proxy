@@ -1,2 +1,5 @@
 textual
 pydantic
+websocket-client
+requests
+websockets
