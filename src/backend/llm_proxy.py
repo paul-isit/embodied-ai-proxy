@@ -68,8 +68,8 @@ class LLMProxy:
 
     def _receive_loop(self):
         """Background thread that listens for incoming WebSocket messages and routes them."""
-        try:
-            while True:
+        while True:
+            try:
                 result = self.ws.recv()
                 response = json.loads(result)
                 if response.get("op") == "service_response":
@@ -78,20 +78,32 @@ class LLMProxy:
                         if req_id in self.pending_requests:
                             self.pending_requests[req_id]["response"] = response
                             self.pending_requests[req_id]["event"].set()
-        except Exception as e:
-            logging.error(f"WebSocket receive thread error: {e}")
-            with self.ws_lock:
-                if self.ws:
+            except websocket.WebSocketTimeoutException:
+                # Expected timeout due to inactivity, just keep listening
+                continue
+            except (websocket.WebSocketConnectionClosedException, ConnectionResetError, BrokenPipeError):
+                logging.info("WebSocket connection closed by server.")
+                break
+            except Exception as e:
+                logging.error(f"WebSocket receive thread error: {e}")
+                break
+
+        # Cleanup if we exit the loop
+        with self.ws_lock:
+            if self.ws:
+                try:
                     self.ws.close()
-                self.ws = None
+                except Exception:
+                    pass
+            self.ws = None
 
-            if self.on_connection_change:
-                self.on_connection_change(False)
+        if self.on_connection_change:
+            self.on_connection_change(False)
 
-            # Wake up all pending requests with error
-            with self.req_lock:
-                for req in self.pending_requests.values():
-                    req["event"].set()
+        # Wake up all pending requests with error
+        with self.req_lock:
+            for req in self.pending_requests.values():
+                req["event"].set()
 
     def check_bridge_connection(self) -> bool:
         """
