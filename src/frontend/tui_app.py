@@ -1,3 +1,4 @@
+import json
 from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, RichLog
@@ -97,9 +98,10 @@ class EmbodiedProxyApp(App):
             log_text += f"---\n"
         
         if result["json"]:
-            log_text += f"Validated JSON: {result['json']}\n"
+            formatted_json = json.dumps(result["json"], indent=2)
+            log_text += f"[bold blue]Validated JSON:[/bold blue]\n[dim]{formatted_json}[/dim]\n"
         else:
-            log_text += f"Validated JSON: [NONE]\n"
+            log_text += f"[bold blue]Validated JSON:[/bold blue] [dim][NONE][/dim]\n"
             
         if result["execution_result"] == "success":
             log_text += "[bold green][PASS] SUCCESS: Action completed successfully.[/bold green]\n---"

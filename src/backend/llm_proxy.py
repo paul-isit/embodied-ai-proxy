@@ -234,22 +234,35 @@ class LLMProxy:
 
     def build_prompt(self, user_text: str, available_objects: list[str]) -> str:
         """
-        Builds the final prompt sent to the LLM.
-        It injects:
-        - the system prompt (robot rules)
-        - the recipe schema template
-        - the list of valid target objects
-        - the user's natural language command
+        Builds the final prompt by injecting dynamic variables into the 
+        system_prompt template defined by the user.
         """
-        return (
-            f"{self.system_prompt}\n\n"
-            f"### Recipe Schema Template\nThis is the JSON Schema you should strictly follow when generating the JSON output. Understand that this is a template and you will have to modify and fill it based on the user command. Make sure that you return the JSON with all the required fields based on the schema. Don't miss out on any of the fields that are mentioned and provided in the JSON schema.\n"
-            f"{json.dumps(self.schema_block.model_dump(), indent=2)}\n\n"
-            f"### Available Objects\nThese are the list of available objects in the environment of the robot. ONLY use these objects while generating the JSON. If the user asks about an object which doesn't exist in this list, you need to respond with an error JSON. DO NO INVENT the objects if the user asks you to. Also, do not change the names of the objects based on your intuition. Strictly adhere and follow the object names that are provided in the object list. The json you return should only have objects mentioned in the object list CASE SENSITIVE.\n"
-            f"{available_objects}\n\n"
-            f"### User Command\nThis is the user command, please generate the JSON for what the user is asking:\n"
-            f"'{user_text}'\n\n"
-        )
+        # Convert schema to string
+        schema_str = json.dumps(self.schema_block.model_dump(), indent=2)
+        
+        # Convert objects list to a nice string format
+        objects_str = "\n".join([f"- {obj}" for obj in available_objects]) if available_objects else "No objects currently mapped."
+
+        # Perform the template replacement using a dictionary to mirror the .format() structure
+        # while safely ignoring actual JSON {} brackets in the markdown.
+        try:
+            replacements = {
+                "{schema_template}": schema_str,
+                "{available_objects}": objects_str,
+                "{user_command}": user_text
+            }
+            
+            final_prompt = self.system_prompt
+            for key, value in replacements.items():
+                if key not in final_prompt:
+                    raise KeyError(key)
+                final_prompt = final_prompt.replace(key, value)
+                
+            return final_prompt
+            
+        except KeyError as e:
+            # Fallback in case the user deleted a required placeholder in the .md file
+            raise ValueError(f"The system_prompt.md is missing a required placeholder: {e}")
 
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
