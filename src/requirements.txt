@@ -1,2 +1,5 @@
 textual
-pydantic
+pydantic>=2.0.0
+websocket-client
+requests
+websockets

@@ -13,3 +13,7 @@ textual.log
 .vscode/
 .idea/
 *.swp
+
+build/
+install/
+log/

@@ -1,3 +1,4 @@
+import json
 from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, RichLog
@@ -38,8 +39,26 @@ class EmbodiedProxyApp(App):
     def on_mount(self) -> None:
         """Set up the app after mounting."""
         self.title = "Embodied AI Proxy"
-        self.sub_title = "Bridge: CONNECTED (Simulated)"
+        self.sub_title = "Bridge: DISCONNECTED"
         self.query_one(Input).focus()
+        
+        # Tell the proxy to call our update function whenever the state changes
+        self.proxy.on_connection_change = self.handle_connection_change
+
+        # Try to connect once at startup
+        self.fetch_proxy_response("")
+
+    def handle_connection_change(self, is_connected: bool) -> None:
+        """This is called by the proxy's background thread when state changes."""
+        # We must route it back to the main UI thread safely
+        self.call_from_thread(self.update_connection_status, is_connected)
+
+    def update_connection_status(self, is_connected: bool) -> None:
+        """Updates the UI based on connection status."""
+        if is_connected:
+            self.sub_title = "Bridge: CONNECTED"
+        else:
+            self.sub_title = "Bridge: DISCONNECTED"
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle when the user hits enter in the input bar."""
@@ -66,6 +85,9 @@ class EmbodiedProxyApp(App):
 
     def update_log_view(self, result: dict) -> None:
         """Called from the background thread to safely update the UI."""
+        if result.get("is_dummy"):
+            return
+
         # Format the output using Textual's rich markup instead of hardcoded emojis
         log_text = ""
 
@@ -76,9 +98,10 @@ class EmbodiedProxyApp(App):
             log_text += f"---\n"
         
         if result["json"]:
-            log_text += f"Validated JSON: {result['json']}\n"
+            formatted_json = json.dumps(result["json"], indent=2)
+            log_text += f"[bold blue]Validated JSON:[/bold blue]\n[dim]{formatted_json}[/dim]\n"
         else:
-            log_text += f"Validated JSON: [NONE]\n"
+            log_text += f"[bold blue]Validated JSON:[/bold blue] [dim][NONE][/dim]\n"
             
         if result["execution_result"] == "success":
             log_text += "[bold green][PASS] SUCCESS: Action completed successfully.[/bold green]\n---"

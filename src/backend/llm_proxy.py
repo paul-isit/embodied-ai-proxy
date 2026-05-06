@@ -1,5 +1,9 @@
 import json
 import logging
+import uuid
+import websocket
+import requests
+import threading
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -33,17 +37,137 @@ class SystemConfig(BaseModel):
 
 
 class LLMProxy:
-    def __init__(self, config_path: str, bridge_url: str = "http://localhost:9090"):
+    def __init__(self, config_path: str, bridge_url: str = "ws://localhost:9090"):
         """
         Initialize the proxy, load the system prompts from config.txt, 
         and spin up the Hugging Face model in memory.
         """
         self.bridge_url = bridge_url
         self.system_config = self._load_config(config_path)
+        self.llm_config = self.system_config.llm
+        self.schema_block = self.system_config.json_schema
+        self.system_prompt = self.system_config.system_prompt
+        self.ws = None
+        self.ws_lock = threading.Lock()
+        self.req_lock = threading.Lock()
+        self.pending_requests = {}
+        self.receive_thread = None
+        self.on_connection_change = None
+
+    def connect(self):
+        """Initializes a persistent WebSocket connection and dispatcher thread if one doesn't exist."""
+        with self.ws_lock:
+            if self.ws is None:
+                self.ws = websocket.create_connection(self.bridge_url, timeout=60.0)
+                
+                if self.on_connection_change:
+                    self.on_connection_change(True)
+                    
+                self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+                self.receive_thread.start()
+
+    def _receive_loop(self):
+        """Background thread that listens for incoming WebSocket messages and routes them."""
+        while True:
+            try:
+                result = self.ws.recv()
+                response = json.loads(result)
+                if response.get("op") == "service_response":
+                    req_id = response.get("id")
+                    with self.req_lock:
+                        if req_id in self.pending_requests:
+                            self.pending_requests[req_id]["response"] = response
+                            self.pending_requests[req_id]["event"].set()
+            except websocket.WebSocketTimeoutException:
+                # Expected timeout due to inactivity, just keep listening
+                continue
+            except (websocket.WebSocketConnectionClosedException, ConnectionResetError, BrokenPipeError):
+                logging.info("WebSocket connection closed by server.")
+                break
+            except Exception as e:
+                logging.error(f"WebSocket receive thread error: {e}")
+                break
+
+        # Cleanup if we exit the loop
+        with self.ws_lock:
+            if self.ws:
+                try:
+                    self.ws.close()
+                except Exception:
+                    pass
+            self.ws = None
+
+        if self.on_connection_change:
+            self.on_connection_change(False)
+
+        # Wake up all pending requests with error
+        with self.req_lock:
+            for req in self.pending_requests.values():
+                req["event"].set()
+
+    def check_bridge_connection(self) -> bool:
+        """
+        Attempts to connect to the rosbridge WebSocket server.
+        Returns True if successful, False otherwise.
+        """
+        try:
+            self.connect()
+            return True
+        except (ConnectionRefusedError, websocket.WebSocketException) as e:
+            logging.debug(f"Bridge connection failed: {e}")
+            return False
+
+    def _call_ros_service(self, service_name: str, args: dict = None) -> dict:
+        """
+        Connects to rosbridge, calls a ROS service synchronously, and returns the response.
+        """
+        args = args or {}
+        service_id = f"call_service:{service_name}:{uuid.uuid4()}"
         
-        # Simulated Hugging Face initialization
-        # self.tokenizer = AutoTokenizer.from_pretrained("...")
-        # self.model = AutoModelForCausalLM.from_pretrained("...")
+        call_msg = {
+            "op": "call_service",
+            "id": service_id,
+            "service": service_name,
+            "args": args
+        }
+
+        event = threading.Event()
+        with self.req_lock:
+            self.pending_requests[service_id] = {"event": event, "response": None}
+
+        try:
+            # Use persistent websocket connection
+            self.connect()
+            
+            # Send the request
+            with self.ws_lock:
+                if self.ws is None:
+                    raise Exception("WebSocket disconnected.")
+                self.ws.send(json.dumps(call_msg))
+            logging.info(f"Sent request to service: {service_name}")
+            
+            # Wait for response (with timeout to prevent infinite blocking)
+            if not event.wait(timeout=60.0):
+                raise Exception(f"Timeout waiting for response from {service_name}")
+            
+            with self.req_lock:
+                response = self.pending_requests[service_id]["response"]
+            
+            if response is None:
+                 raise Exception("WebSocket connection dropped while waiting for response.")
+
+            if not response.get("result"):
+                error_msg = response.get('values') or 'Service call failed (result: false)'
+                raise Exception(f"ROS Service Error: {error_msg}")
+            
+            return response.get("values", {})
+                    
+        except Exception as e:
+            logging.error(f"Middleware connection failed: {e}")
+            raise Exception(f"Middleware connection failed: {e}") from e
+        finally:
+            with self.req_lock:
+                self.pending_requests.pop(service_id, None)
 
     def _load_json_file(self, path: Path, filename: str) -> dict:
         """
@@ -97,84 +221,130 @@ class LLMProxy:
             system_prompt=system_prompt
         )
 
-
-
     def get_environment_context(self) -> list[str]:
         """
-        Makes an HTTP GET request to the Bridge Node to fetch the Current Object List.
-        Returns: ['blue_block', 'red_cube', 'table']
+        Makes a WebSocket request to rosbridge to fetch the Current Object List via a ROS Service.
         """
-        return ['blue_block', 'red_cube', 'table', 'window']
+        try:
+            # We assume the EnvironmentMappingNode provides a service /get_robot_parameters
+            response = self._call_ros_service('/get_robot_parameters')
+            return response.get('object_list', [])
+        except Exception as e:
+            raise RuntimeError(f"Failed to get environment context: {e}") from e
 
-
-
-
-    def build_prompt(self, user_text: str, available_objects: List[str]) -> str:
+    def build_prompt(self, user_text: str, available_objects: list[str]) -> str:
         """
-        Builds the final prompt sent to the LLM.
-        It injects:
-        - the system prompt (robot rules)
-        - the recipe schema template
-        - the list of valid target objects
-        - the user's natural language command
+        Builds the final prompt by injecting dynamic variables into the 
+        system_prompt template defined by the user.
         """
+        # Convert schema to string
+        schema_str = json.dumps(self.schema_block.model_dump(), indent=2)
+        
+        # Convert objects list to a nice string format
+        objects_str = "\n".join([f"- {obj}" for obj in available_objects]) if available_objects else "No objects currently mapped."
 
-        schema_block = json.dumps(self.system_config.json_schema.model_dump(), indent=2)
-
-        return (
-            f"{self.system_config.system_prompt}\n\n"
-            f"### Recipe Schema Template\n"
-            f"{schema_block}\n\n"
-            f"### Available Objects\n"
-            f"{available_objects}\n\n"
-            f"### User Command\n"
-            f"{user_text}\n\n"
-            f"### Task\n"
-            f"Generate a valid JSON recipe following the schema above. "
-            f"Only use allowed actions. Never output anything except JSON."
-        )
+        # Perform the template replacement using a dictionary to mirror the .format() structure
+        # while safely ignoring actual JSON {} brackets in the markdown.
+        try:
+            replacements = {
+                "{schema_template}": schema_str,
+                "{available_objects}": objects_str,
+                "{user_command}": user_text
+            }
+            
+            final_prompt = self.system_prompt
+            for key, value in replacements.items():
+                if key not in final_prompt:
+                    raise KeyError(key)
+                final_prompt = final_prompt.replace(key, value)
+                
+            return final_prompt
+            
+        except KeyError as e:
+            # Fallback in case the user deleted a required placeholder in the .md file
+            raise ValueError(f"The system_prompt.md is missing a required placeholder: {e}")
 
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
-        """
-        Passes the prompt to the Hugging Face model and returns the raw text generation.
-        """
-        # Dummy behavior based on prompt
-        if "pick up" in formatted_prompt.lower() and "blue block" in formatted_prompt.lower():
-            return '{"action": "pick_up", "target": "blue_block"}'
-        elif "fly" in formatted_prompt.lower() and "window" in formatted_prompt.lower():
-            return '{"action": "move_to", "target": "window"}'
-        else:
-            return '{"action": "unknown", "target": "unknown"}'
+        """Passes the formatted prompt to the remote LLM API (Ollama)."""
+        payload = {
+            "model": self.llm_config.model,
+            "prompt": formatted_prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.llm_config.temperature
+            }
+        }
+        try:
+            # We add a timeout so the UI doesn't hang forever if the host isn't reachable
+            response = requests.post(self.llm_config.base_url, json=payload, timeout=self.llm_config.timeout_seconds)
+            if not response.ok:
+                try:
+                    error_msg = response.json().get("error", response.text)
+                except ValueError:
+                    error_msg = response.text
+                raise RuntimeError(f"Ollama API Error ({response.status_code}): {error_msg}")
+            
+            data = response.json()
+            return data.get("response", "").strip()
+            
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Failed to connect to Local LLM at {self.llm_config.base_url}. Error: {e}")
 
 
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
         """
-        Finds the JSON block in the LLM's text output and checks it against your schema.
-        Raises an Exception if the JSON is malformed.
+        Attempts to parse the JSON from the LLM.
+        Raises ValueError if the output is not valid JSON.
         """
+        # validation logic can be improved
         try:
-            parsed = json.loads(raw_llm_text)
-            if "action" not in parsed or "target" not in parsed:
-                raise ValueError("Missing 'action' or 'target' in JSON")
-            return parsed
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON format")
+            clean_text = raw_llm_text.strip()
+            if clean_text.startswith("```json"):
+                clean_text = clean_text[7:]
+            elif clean_text.startswith("```"):
+                clean_text = clean_text[3:]
+                
+            if clean_text.endswith("```"):
+                clean_text = clean_text[:-3]
+                
+            clean_text = clean_text.strip()
+            parsed_json_dict = json.loads(clean_text)
+            validated_data = JSONSchema(**parsed_json_dict).model_dump()
+            return validated_data
+        except Exception as e:
+            raise ValueError(f"Failed to parse LLM output as JSON: {e}") from e
 
     def send_to_middleware(self, validated_json: dict) -> bool:
         """
-        Makes an HTTP POST request to the Bridge Node.
+        Makes a WebSocket request to rosbridge to execute the recipe via a ROS Service.
         """
-        # Dummy logic for success/failure
-        if validated_json.get("action") == "move_to" and validated_json.get("target") == "window":
-            return False # simulated kinematic failure
-        return True
+        try:
+            # We assume the JsonParserNode provides a service /execute_recipe
+            response = self._call_ros_service('/execute_recipe', {"recipe_json": json.dumps(validated_json)})
+            # We expect the service to return a success boolean
+            return response.get('success', False)
+        except Exception as e:
+            logging.error(f"Failed to execute recipe: {e}")
+            raise Exception(f"Failed to communicate with the robot: {str(e)}")
 
     def process_user_request(self, user_text: str) -> dict:
         """
         The main orchestrator function called by your User Interface.
         """
+        if not self.check_bridge_connection():
+            logging.error("Cannot connect to the robot. The rosbridge server is not running on port 9090.")
+            return {
+                "prompt": f"User command: {user_text}",
+                "json": None,
+                "execution_result": "failure",
+                "error": "Cannot connect to the robot. The rosbridge server is not running on port 9090."
+            }
+
+        if not user_text.strip():
+            return {"is_dummy": True}
+
         try:
             available_objects = self.get_environment_context()
             prompt = self.build_prompt(user_text, available_objects)
@@ -186,7 +356,7 @@ class LLMProxy:
                 "prompt": prompt,
                 "json": validated_json,
                 "execution_result": "success" if success else "failure",
-                "error": None if success else "Simulated kinematic failure. Target out of bounds."
+                "error": None if success else "Robot failed to execute the recipe."
             }
         except Exception as e:
             return {
