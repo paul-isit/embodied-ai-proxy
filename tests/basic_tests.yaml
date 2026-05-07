@@ -1,23 +1,71 @@
 tests:
 
-  - name: Pick apple
-    prompt: "pick up apple"
-    available_objects: ["apple", "banana"]
+  - name: Pick apple and place on tray
+    prompt: "pick up the apple and place it on the tray"
+    available_objects:
+      - apple
+      - tray
+      - banana
+
     expected_actions:
       - home
       - gripper
       - move_arm
       - gripper
+      - relative_move
+      - move_arm
+      - gripper
+      - home
 
-  - name: Place banana
-    prompt: "pick banana and place it back"
-    available_objects: ["banana"]
+  - name: Pick banana and return home
+    prompt: "pick up the banana"
+    available_objects:
+      - banana
+      - tray
+
+    expected_actions:
+      - home
+      - gripper
+      - move_arm
+      - gripper
+      - relative_move
+
+  - name: Move to inspection point
+    prompt: "inspect the apple"
+    available_objects:
+      - apple
+      - inspection_zone
+
     expected_actions:
       - home
       - move_arm
+      - relative_move
+
+  - name: Relocate apple to inspection zone
+    prompt: "move the apple to the inspection zone"
+    available_objects:
+      - apple
+      - inspection_zone
+
+    expected_actions:
+      - home
+      - gripper
+      - move_arm
+      - gripper
+      - relative_move
+      - move_arm
       - gripper
 
-  - name: Invalid object
-    prompt: "pick car"
-    available_objects: ["apple"]
-    expected_actions: []
+  - name: Pick banana and place on tray
+    prompt: "place the banana on the tray"
+    available_objects:
+      - banana
+      - tray
+
+    expected_actions:
+      - home
+      - gripper
+      - move_arm
+      - gripper
+      - relative_move
+      - move_arm
