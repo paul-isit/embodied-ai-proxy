@@ -13,7 +13,8 @@ The project is divided into two distinct domains to ensure hardware stability an
 
 ```text
 embodied-ai-proxy/
-├── main.py                         # System entry point (Starts the UI)
+├── main.py                         # System entry point
+├── evaluate_proxy.py               # Bulk testing from YAML file  
 ├── mock_middleware.py              # Mock ROS2 node for testing without hardware
 ├── configs/                        # Configuration and validation rules
 │   ├── llm_config.json             # Ollama API settings and model selection
@@ -27,6 +28,11 @@ embodied-ai-proxy/
 │           ├── setup.py
 │           └── launch/
 │               └── proxy_bridge.launch.py # Launches rosbridge_server
+│
+├── tests                           # YAML files containing test scripts
+|    ├── basic_tests.yaml           # Short list of tests 
+|    
+|
 │
 └── src/                            # Domain 2: Python Inference Environment
     ├── requirements.txt            # Python dependencies (websockets, requests, textual, pydantic)
