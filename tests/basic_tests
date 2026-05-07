@@ -1,0 +1,23 @@
+tests:
+
+  - name: Pick apple
+    prompt: "pick up apple"
+    available_objects: ["apple", "banana"]
+    expected_actions:
+      - home
+      - gripper
+      - move_arm
+      - gripper
+
+  - name: Place banana
+    prompt: "pick banana and place it back"
+    available_objects: ["banana"]
+    expected_actions:
+      - home
+      - move_arm
+      - gripper
+
+  - name: Invalid object
+    prompt: "pick car"
+    available_objects: ["apple"]
+    expected_actions: []
