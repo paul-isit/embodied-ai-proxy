@@ -35,7 +35,8 @@ def run_tests(proxy, tests):
         name = test.get("name", f"test_{i}")
         prompt = test.get("prompt", "")
         objects = test.get("available_objects", [])
-        expected_actions = test.get("expected_actions", [])
+        expected_steps = test.get("expected", {}).get("steps", [])
+        expected_actions = test.get("expected_actions") or test.get("expected", [])
 
         print(f"\n[Test {i}] {name}")
 
