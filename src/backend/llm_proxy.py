@@ -22,7 +22,7 @@ class LLMConfig(BaseModel):
 class StepSchema(BaseModel):
     step_id: int
     action: str
-    description: str
+    description: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
 
 class JSONSchema(BaseModel):
@@ -291,7 +291,7 @@ class LLMProxy:
                     error_msg = response.json().get("error", response.text)
                 except ValueError:
                     error_msg = response.text
-            raise RuntimeError(f"Ollama API Error ({response.status_code}): {error_msg}")
+                raise RuntimeError(f"Ollama API Error ({response.status_code}): {error_msg}")
 
             data = response.json()
             return data.get("response", "").strip()
