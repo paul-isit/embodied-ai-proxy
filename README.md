@@ -13,7 +13,8 @@ The project is divided into two distinct domains to ensure hardware stability an
 
 ```text
 embodied-ai-proxy/
-├── main.py                         # System entry point (Starts the UI)
+├── main.py                         # System entry point
+├── evaluate_proxy.py               # Bulk testing from YAML file  
 ├── mock_middleware.py              # Mock ROS2 node for testing without hardware
 ├── configs/                        # Configuration and validation rules
 │   ├── llm_config.json             # Ollama API settings and model selection
@@ -27,6 +28,11 @@ embodied-ai-proxy/
 │           ├── setup.py
 │           └── launch/
 │               └── proxy_bridge.launch.py # Launches rosbridge_server
+│
+├── tests                           # YAML files containing test scripts
+|    ├── basic_tests.yaml           # Short list of tests 
+|    
+|
 │
 └── src/                            # Domain 2: Python Inference Environment
     ├── requirements.txt            # Python dependencies (websockets, requests, textual, pydantic)
@@ -86,3 +92,86 @@ python3 main.py
 
 ## Configuration
 Update `configs/llm_config.json` to point to your local LLM provider. By default, it expects an Ollama instance running locally (e.g., `http://localhost:11434/api/generate`). Ensure the `format` is set properly in `llm_proxy.py` to enforce strict JSON output from the model.
+## Testing the proxy with YAML scripts
+
+Run Ollama and pull the LLM
+```bash
+ollama serve
+ollama pull gemma3:1b
+```
+
+## Set PYTHONPATH
+
+This function uses local imports
+```bash
+echo 'export PYTHONPATH=.' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Running bulk scripts
+
+From project root:
+```bash
+python3 evaluate_proxy.py \
+  --config-dir ./configs \
+  --tests ./tests/basic_tests.yaml
+
+python3 evaluate_proxy.py \
+  --config-dir ./configs \
+  --tests ./tests/extended_tests.yaml
+```
+
+## Create testing YAML script
+
+Test cases are defined here, example structure here:
+```bash
+tests:
+
+  - name: Pick apple
+    prompt: "pick up the apple"
+
+    available_objects:
+      - apple
+      - banana
+      - tray
+
+    expected_actions:
+      - home
+      - gripper
+      - move_arm
+      - gripper
+      - relative_move
+```
+Required fiels per test include
+```bash
+| Field             | Type   | Description                         |
+|------------------|--------|-------------------------------------|
+| name             | string | Human-readable test label           |
+| prompt           | string | User command sent to the LLM        |
+| available_objects| list   | Objects available in environment    |
+| expected_actions | list   | Expected robot action sequence      |
+```
+Place completed YAML file in the "tests" folder
+
+## Example Test Execution
+
+Run
+```bash
+python3 evaluate_proxy.py \
+  --config-dir ./configs \
+  --tests ./tests/basic_tests.yaml
+```
+
+## Output Example
+
+```bash
+[Test 1] Pick apple and place on tray
+  Expected Actions: ['home', 'gripper', 'move_arm', 'gripper']
+  Actual Actions  : ['home', 'gripper', 'move_arm', 'gripper', 'relative_move', 'move_arm', 'gripper', 'home']
+  Result: PASS
+
+[Test 2] Inspect apple
+  Expected Actions: ['home', 'move_arm', 'relative_move']
+  Actual Actions  : ['home', 'move_arm', 'relative_move', 'home']
+  Result: PASS
+```

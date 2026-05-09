@@ -4,37 +4,35 @@ import uuid
 import websocket
 import requests
 import threading
+import re
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
 
-
 class LLMConfig(BaseModel):
-    provider: str 
-    model: str 
-    base_url: str 
-    api_key: str 
-    max_tokens:int 
-    temperature: float 
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    max_tokens: int
+    temperature: float
     timeout_seconds: int
 
 class StepSchema(BaseModel):
     step_id: int
     action: str
-    description: str
+    description: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
-
 
 class JSONSchema(BaseModel):
     recipe_name: str
     steps: List[StepSchema]
 
 class SystemConfig(BaseModel):
-    llm: LLMConfig 
-    json_schema: JSONSchema 
+    llm: LLMConfig
+    json_schema: JSONSchema
     system_prompt: str
-
 
 class LLMProxy:
     def __init__(self, config_path: str, bridge_url: str = "ws://localhost:9090"):
@@ -59,7 +57,7 @@ class LLMProxy:
         with self.ws_lock:
             if self.ws is None:
                 self.ws = websocket.create_connection(self.bridge_url, timeout=60.0)
-                
+
                 if self.on_connection_change:
                     self.on_connection_change(True)
                     
@@ -79,9 +77,10 @@ class LLMProxy:
                             self.pending_requests[req_id]["response"] = response
                             self.pending_requests[req_id]["event"].set()
             except websocket.WebSocketTimeoutException:
-                # Expected timeout due to inactivity, just keep listening
                 continue
-            except (websocket.WebSocketConnectionClosedException, ConnectionResetError, BrokenPipeError):
+                # Expected timeout due to inactivity, just keep listening
+            except (
+                websocket.WebSocketConnectionClosedException, ConnectionResetError, BrokenPipeError):
                 logging.info("WebSocket connection closed by server.")
                 break
             except Exception as e:
@@ -117,13 +116,14 @@ class LLMProxy:
             logging.debug(f"Bridge connection failed: {e}")
             return False
 
+
     def _call_ros_service(self, service_name: str, args: dict = None) -> dict:
         """
         Connects to rosbridge, calls a ROS service synchronously, and returns the response.
         """
         args = args or {}
         service_id = f"call_service:{service_name}:{uuid.uuid4()}"
-        
+
         call_msg = {
             "op": "call_service",
             "id": service_id,
@@ -145,23 +145,24 @@ class LLMProxy:
                     raise Exception("WebSocket disconnected.")
                 self.ws.send(json.dumps(call_msg))
             logging.info(f"Sent request to service: {service_name}")
-            
+
             # Wait for response (with timeout to prevent infinite blocking)
             if not event.wait(timeout=60.0):
-                raise Exception(f"Timeout waiting for response from {service_name}")
-            
+                raise Exception(
+                    f"Timeout waiting for response from {service_name}")
+
             with self.req_lock:
                 response = self.pending_requests[service_id]["response"]
-            
+
             if response is None:
-                 raise Exception("WebSocket connection dropped while waiting for response.")
+                raise Exception("WebSocket connection dropped while waiting for response.")
 
             if not response.get("result"):
-                error_msg = response.get('values') or 'Service call failed (result: false)'
+                error_msg = (response.get("values") or "Service call failed (result: false)")
                 raise Exception(f"ROS Service Error: {error_msg}")
-            
+
             return response.get("values", {})
-                    
+
         except Exception as e:
             logging.error(f"Middleware connection failed: {e}")
             raise Exception(f"Middleware connection failed: {e}") from e
@@ -171,19 +172,19 @@ class LLMProxy:
 
     def _load_json_file(self, path: Path, filename: str) -> dict:
         """
-        Helper function to load the JSON files 
+        Helper to load JSON files.
         """
         try:
             with open(path / filename, "r") as f:
                 return json.load(f)
         #Error handling for json files
-        except FileNotFoundError: 
-            logging.error(f"{filename} not found. Please provide a valid config path.")
+        except FileNotFoundError:
+            logging.error(
+                f"{filename} not found. Please provide a valid config path.")
             raise
         except json.JSONDecodeError as e:
             logging.error(f"Invalid JSON in {filename}: {e}")
-            raise 
-
+            raise
 
     def _load_config(self, config_path):
         """
@@ -191,23 +192,28 @@ class LLMProxy:
         """ 
         path = Path(config_path)
 
-        #Load the json files using the helper function 
+        #Load the json files using the helper function
         llm_config = self._load_json_file(path, "llm_config.json")
-        json_schema = self._load_json_file(path, "json_schema.json")
-        
+        json_schema_raw = self._load_json_file(path, "json_schema.json")
+
         #Default system prompt file set to system_prompt.md
         system_prompt_path = path / "system_prompt.md"
-
+ 
         #Load system prompt
         if system_prompt_path.exists():
-            logging.info(f"Loading system prompt from: {system_prompt_path}")
+            logging.info(
+                f"Loading system prompt from: {system_prompt_path}")
             try:
                 with open(system_prompt_path, "r") as f:
                     system_prompt = f.read()
             #Fall back to hard coded default system prompt if errors occur
             except Exception as e:
-                logging.warning(f"Failed to read system prompt file: {e}. Falling back to default.")
+                logging.warning(
+                    f"Failed to read system prompt file: {e}. "
+                    f"Falling back to default."
+                )
                 system_prompt = DEFAULT_SYSTEM_PROMPT
+
         else:
             logging.warning(
                 f"system_prompt.md not found at {system_prompt_path}. "
@@ -217,7 +223,7 @@ class LLMProxy:
 
         return SystemConfig(
             llm=LLMConfig(**llm_config),
-            json_schema=JSONSchema(**json_schema),
+            json_schema=JSONSchema(**json_schema_raw),
             system_prompt=system_prompt
         )
 
@@ -232,16 +238,16 @@ class LLMProxy:
         except Exception as e:
             raise RuntimeError(f"Failed to get environment context: {e}") from e
 
-    def build_prompt(self, user_text: str, available_objects: list[str]) -> str:
+    def build_prompt(self, user_text: str,available_objects: list[str]) -> str:
         """
         Builds the final prompt by injecting dynamic variables into the 
         system_prompt template defined by the user.
         """
         # Convert schema to string
         schema_str = json.dumps(self.schema_block.model_dump(), indent=2)
-        
+
         # Convert objects list to a nice string format
-        objects_str = "\n".join([f"- {obj}" for obj in available_objects]) if available_objects else "No objects currently mapped."
+        objects_str = ("\n".join([f"- {obj}" for obj in available_objects]) if available_objects else "No objects currently mapped.")
 
         # Perform the template replacement using a dictionary to mirror the .format() structure
         # while safely ignoring actual JSON {} brackets in the markdown.
@@ -251,19 +257,18 @@ class LLMProxy:
                 "{available_objects}": objects_str,
                 "{user_command}": user_text
             }
-            
+
             final_prompt = self.system_prompt
             for key, value in replacements.items():
                 if key not in final_prompt:
                     raise KeyError(key)
                 final_prompt = final_prompt.replace(key, value)
-                
-            return final_prompt
-            
-        except KeyError as e:
-            # Fallback in case the user deleted a required placeholder in the .md file
-            raise ValueError(f"The system_prompt.md is missing a required placeholder: {e}")
 
+            return final_prompt
+
+        except KeyError as e:
+        # Fallback in case the user deleted a required placeholder in the .md file     
+            raise ValueError(f"system_prompt.md missing required placeholder: {e}")
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
         """Passes the formatted prompt to the remote LLM API (Ollama)."""
@@ -271,10 +276,13 @@ class LLMProxy:
             "model": self.llm_config.model,
             "prompt": formatted_prompt,
             "stream": False,
+            "format": "json",
             "options": {
-                "temperature": self.llm_config.temperature
+                "temperature": self.llm_config.temperature,
+                "num_predict": self.llm_config.max_tokens
             }
         }
+
         try:
             # We add a timeout so the UI doesn't hang forever if the host isn't reachable
             response = requests.post(self.llm_config.base_url, json=payload, timeout=self.llm_config.timeout_seconds)
@@ -284,14 +292,16 @@ class LLMProxy:
                 except ValueError:
                     error_msg = response.text
                 raise RuntimeError(f"Ollama API Error ({response.status_code}): {error_msg}")
-            
+
             data = response.json()
             return data.get("response", "").strip()
-            
+
         except requests.exceptions.RequestException as e:
-            raise RuntimeError(f"Failed to connect to Local LLM at {self.llm_config.base_url}. Error: {e}")
 
-
+            raise RuntimeError(
+                f"Failed to connect to Local LLM at "
+                f"{self.llm_config.base_url}. Error: {e}"
+            )
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
         """
@@ -308,22 +318,56 @@ class LLMProxy:
                 
             if clean_text.endswith("```"):
                 clean_text = clean_text[:-3]
-                
             clean_text = clean_text.strip()
-            parsed_json_dict = json.loads(clean_text)
+            try:
+                parsed_json_dict = json.loads(clean_text)
+            except json.JSONDecodeError:
+
+                match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+
+                if not match:
+                    raise ValueError("No JSON object found in LLM response.")
+                parsed_json_dict = json.loads(match.group(0))
             validated_data = JSONSchema(**parsed_json_dict).model_dump()
             return validated_data
         except Exception as e:
             raise ValueError(f"Failed to parse LLM output as JSON: {e}") from e
+
+    def generate(
+        self,
+        user_prompt: str,
+        available_objects: list[str]
+    ):
+        """
+        Lightweight generation interface for
+        automated YAML testing.
+        Does NOT execute middleware.
+        """
+
+        prompt = self.build_prompt(
+            user_prompt,
+            available_objects
+        )
+
+        raw_response = self.generate_llm_response(prompt)
+
+        validated_json = self.validate_and_extract_json(
+            raw_response
+        )
+
+        return {
+            "raw_output": raw_response,
+            "parsed": validated_json
+        }
 
     def send_to_middleware(self, validated_json: dict) -> bool:
         """
         Makes a WebSocket request to rosbridge to execute the recipe via a ROS Service.
         """
         try:
-            # We assume the JsonParserNode provides a service /execute_recipe
+        # We assume the JsonParserNode provides a service /execute_recipe
             response = self._call_ros_service('/execute_recipe', {"recipe_json": json.dumps(validated_json)})
-            # We expect the service to return a success boolean
+        # We expect the service to return a success boolean
             return response.get('success', False)
         except Exception as e:
             logging.error(f"Failed to execute recipe: {e}")
@@ -344,18 +388,19 @@ class LLMProxy:
 
         if not user_text.strip():
             return {"is_dummy": True}
-
+            
         try:
             available_objects = self.get_environment_context()
             prompt = self.build_prompt(user_text, available_objects)
             raw_response = self.generate_llm_response(prompt)
             validated_json = self.validate_and_extract_json(raw_response)
             success = self.send_to_middleware(validated_json)
-            
+
             return {
                 "prompt": prompt,
                 "json": validated_json,
-                "execution_result": "success" if success else "failure",
+                "execution_result": ("success" if success else "failure"
+                ),
                 "error": None if success else "Robot failed to execute the recipe."
             }
         except Exception as e:
