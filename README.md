@@ -37,7 +37,16 @@ embodied-ai-proxy/
 └── src/                            # Domain 2: Python Inference Environment
     ├── requirements.txt            # Python dependencies (websockets, requests, textual, pydantic)
     ├── frontend/                   # UI Components
-    │   └── tui_app.py              # Terminal User Interface
+    │   ├── tui_app.py              # Terminal User Interface
+    │   ├── styles.css              # TUI styling and layout config
+    │   ├── proxy_client.py         # Handles backend / bridge communication
+    │   │        
+    │   └── components/             # Further configurations for TUI
+    │        ├── formatter.py       # Formats output for display in TUI
+    │        ├── input_bar.py       # Handles user command input
+    │        ├── log_panel.py       # Displays logs, recipes and system output
+    │        └── status_panel.py    # Displays connection and system status
+    │
     └── backend/                    # Core Logic
         ├── defaults.py
         └── llm_proxy.py            # Main proxy class handling LLM and ROS WebSocket comms
@@ -174,4 +183,25 @@ python3 evaluate_proxy.py \
   Expected Actions: ['home', 'move_arm', 'relative_move']
   Actual Actions  : ['home', 'move_arm', 'relative_move', 'home']
   Result: PASS
+```
+## Configuring accessible info for TUI
+
+The TUI can be utilized with 3 varying levels of access to diagnostics and backend information.
+
+General Access - Minimal Info
+
+```bash
+python3 main.py
+```
+
+Level 1 - All prior access + raw prompt
+
+```bash
+python3 main.py -v
+```
+
+Level 2 - All prior + rendered system prompt
+
+```bash
+python3 main.py -vv
 ```
