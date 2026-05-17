@@ -15,7 +15,6 @@ The project is divided into two distinct domains to ensure hardware stability an
 embodied-ai-proxy/
 ├── main.py                         # System entry point
 ├── evaluate_proxy.py               # Bulk testing from YAML file  
-├── mock_middleware.py              # Mock ROS2 node for testing without hardware
 ├── configs/                        # Configuration and validation rules
 │   ├── llm_config.json             # Ollama API settings and model selection
 │   ├── system_prompt.md            # Base instructions for the LLM
