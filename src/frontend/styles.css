@@ -1,0 +1,26 @@
+Screen {
+    background: black;
+    color: white;
+}
+
+#status {
+    height: 3;
+    dock: top;
+    background: #111111;
+    color: #00ff99;
+    padding: 1;
+}
+
+#log {
+    height: 1fr;
+    background: #0b0b0b;
+    color: #e0e0e0;
+    overflow: auto;
+}
+
+#input {
+    height: 3;
+    dock: bottom;
+    background: #111111;
+    color: white;
+}
