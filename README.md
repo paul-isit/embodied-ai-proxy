@@ -30,7 +30,7 @@ embodied-ai-proxy/
 │               └── proxy_bridge.launch.py # Launches rosbridge_server
 │
 ├── tests                           # YAML files containing test scripts
-|    ├── basic_tests.yaml           # Short list of tests 
+|    └── basic_tests.yaml           # Short list of tests 
 |    
 |
 │
