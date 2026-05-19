@@ -86,12 +86,9 @@ class EmbodiedProxyApp(App):
             spacing = " " * (19 - len("CONNECTED") if ok else 19 - len("DISCONNECTED"))
             
             sys_box = (
-                "\n┌────────────────────────────────────────┐\n"
-                "│ SYSTEM OPERATIONAL FRAMEWORK MATRIX    │\n"
-                "├────────────────────────────────────────┤\n"
-                f"│ ROS Bridge Status : {status_markup}{spacing} │\n"
-                "│ Pipeline Target   : /json_parser_node  │\n"
-                "└────────────────────────────────────────┘"
+                "   SYSTEM OPERATIONAL FRAMEWORK MATRIX \n"
+                f"  ROS Bridge Status : {status_markup}{spacing}\n"
+                "   Pipeline Target   : /json_parser_node  \n"
             )
             self.log_panel.add_info(sys_box)
         except Exception as e:
@@ -104,12 +101,9 @@ class EmbodiedProxyApp(App):
         provider = getattr(self.proxy.llm_config, "provider", "Local Engine")
         
         llm_box = (
-            "\n┌────────────────────────────────────────┐\n"
-            "│ COGNITIVE INFERENCE MAPPING PROFILE    │\n"
-            "├────────────────────────────────────────┤\n"
-            f"│ Model Arch        : {model:<19} │\n"
-            f"│ Token Provider    : {provider:<19} │\n"
-            "└────────────────────────────────────────┘"
+            "   COGNITIVE INFERENCE MAPPING PROFILE \n"
+            f"  Model Arch        : {model:<19}\n"
+            f"  Token Provider    : {provider:<19}\n"
         )
         self.log_panel.add_info(llm_box)
         self.input.focus()
