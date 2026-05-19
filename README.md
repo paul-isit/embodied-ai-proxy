@@ -44,6 +44,7 @@ embodied-ai-proxy/
     │        ├── formatter.py       # Formats output for display in TUI
     │        ├── input_bar.py       # Handles user command input
     │        ├── log_panel.py       # Displays logs, recipes and system output
+    │        ├── sidebar.py         # Column displaying info in TUI
     │        └── status_panel.py    # Displays connection and system status
     │
     └── backend/                    # Core Logic
@@ -185,22 +186,15 @@ python3 evaluate_proxy.py \
 ```
 ## Configuring accessible info for TUI
 
-The TUI can be utilized with 3 varying levels of access to diagnostics and backend information.
-
-General Access - Minimal Info
-
-```bash
-python3 main.py
-```
-
-Level 1 - All prior access + raw prompt
+The TUI can be utilized with 3 varying levels of verbosity to diagnostics and backend information.
+These settings can be cycled through via the "Cycle Mode Button" at any time via the TUI
 
 ```bash
-python3 main.py -v
+Level 1 (Filtered): Shows only the final 'Action Recipe' and execution trace
+
+Level 2 (Full Context): Adds 'Workspace Object Map' to verify environmental perception
+
+Level 3 (Engineering): Adds full model metadata, endpoints and latency metrics
 ```
 
-Level 2 - All prior + rendered system prompt
 
-```bash
-python3 main.py -vv
-```
