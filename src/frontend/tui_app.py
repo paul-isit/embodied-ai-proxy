@@ -1,114 +1,108 @@
-import json
-from textual import work
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, RichLog
-from src.backend.llm_proxy import LLMProxy
+import asyncio 
+import time 
+from pathlib import Path 
 
-class EmbodiedProxyApp(App):
-    """A Textual app for the Embodied AI Proxy.""" 
+from textual.app import App 
+from textual.binding import Binding 
+from textual.widgets import Footer
 
-    CSS = """
-    Screen {
-        layout: vertical;
-    }
-    
-    #log-view {
-        height: 1fr;
-        border: solid green;
-        padding: 1;
-        margin: 1;
-    }
+from src.backend.llm_proxy import LLMProxy 
+from src.frontend.components.status_panel import StatusPanel 
+from src.frontend.components.log_panel import LogPanel 
+from src.frontend.components.input_bar import InputBar 
 
-    #input-bar {
-        dock: bottom;
-        margin: 1;
-    }
-    """
+BASE_DIR = Path(__file__).resolve().parent 
 
-    def __init__(self, proxy: LLMProxy):
-        super().__init__()
-        self.proxy = proxy
+class EmbodiedProxyApp(App): 
+    CSS_PATH = BASE_DIR / "styles.css" 
+     
+    show_chroma = False
 
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        yield Header()
-        yield RichLog(id="log-view", highlight=True, markup=True)
-        yield Input(placeholder="Enter instruction for the robot...", id="input-bar")
+    BINDINGS = [ 
+        Binding("ctrl+y", "copy_prompt", "Ctrl+Y: Copy System Prompt", show=True), 
+        Binding("ctrl+q", "quit", "Ctrl+Q: Quit Application", show=True) 
+    ] 
+
+    def __init__(self, proxy: LLMProxy, verbosity: int = 0): 
+        super().__init__() 
+        self.proxy = proxy 
+        self.verbosity = verbosity 
+        self.cached_system_prompt = None 
+
+    def compose(self): 
+        yield StatusPanel(id="status") 
+        yield LogPanel(id="log") 
+        yield InputBar(id="input") 
         yield Footer()
 
-    def on_mount(self) -> None:
-        """Set up the app after mounting."""
-        self.title = "Embodied AI Proxy"
-        self.sub_title = "Bridge: DISCONNECTED"
-        self.query_one(Input).focus()
-        
-        # Tell the proxy to call our update function whenever the state changes
-        self.proxy.on_connection_change = self.handle_connection_change
+    def on_mount(self): 
+        self.status = self.query_one("#status", StatusPanel) 
+        self.log_panel = self.query_one("#log", LogPanel) 
+        self.input = self.query_one("#input", InputBar) 
+        self.title = "Embodied AI Proxy" 
+        prompt_path = BASE_DIR.parent.parent / "configs" / "system_prompt.md" 
+        if prompt_path.exists(): 
+            try: 
+                self.cached_system_prompt = prompt_path.read_text(encoding="utf-8").strip() 
+            except Exception as e: 
+                self.cached_system_prompt = f"Error reading system_prompt.md: {e}" 
+        else: 
+            self.cached_system_prompt = f"Warning: Configuration not found at {prompt_path}" 
 
-        # Try to connect once at startup
-        self.fetch_proxy_response("")
+        async def _bridge_loop(): 
+            while True: 
+                try: 
+                    ok = self.proxy.check_bridge_connection() 
+                    self.status.set_connection(ok) 
+                except Exception: 
+                    self.status.set_connection(False) 
+                await asyncio.sleep(3) 
 
-    def handle_connection_change(self, is_connected: bool) -> None:
-        """This is called by the proxy's background thread when state changes."""
-        # We must route it back to the main UI thread safely
-        self.call_from_thread(self.update_connection_status, is_connected)
+        asyncio.create_task(_bridge_loop()) 
 
-    def update_connection_status(self, is_connected: bool) -> None:
-        """Updates the UI based on connection status."""
-        if is_connected:
-            self.sub_title = "Bridge: CONNECTED"
-        else:
-            self.sub_title = "Bridge: DISCONNECTED"
+    # HOTKEY ACTIONS
+    def action_copy_prompt(self) -> None: 
+        if self.cached_system_prompt: 
+            self.copy_to_clipboard(self.cached_system_prompt) 
+            self.notify("System Prompt copied to clipboard", title="Clipboard Action", severity="information") 
+        else: 
+            self.notify("No system prompt loaded to copy", severity="warning") 
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle when the user hits enter in the input bar."""
-        user_text = event.value
-        if not user_text.strip():
-            return
-            
-        event.input.value = ""
-        
-        # Show a loading state in the log while processing
-        log_view = self.query_one(RichLog)
-        log_view.write(f"Prompt: > '{user_text}'\n[dim]Processing...[/dim]")
-        
-        # Fire and forget the background worker
-        self.fetch_proxy_response(user_text)
+    async def on_input_submitted(self, message): 
+        text = message.value.strip() 
+        if not text: 
+            return 
 
-    @work(exclusive=True, thread=True)
-    def fetch_proxy_response(self, user_text: str) -> None:
-        """This runs in a background thread and doesn't block the UI."""
-        result = self.proxy.process_user_request(user_text)
-        
-        # Once done, update the UI using Textual's thread-safe message passing
-        self.call_from_thread(self.update_log_view, result)
+        self.log_panel.add_user(text) 
+        self.input.set_busy(True) 
+        start = time.time() 
 
-    def update_log_view(self, result: dict) -> None:
-        """Called from the background thread to safely update the UI."""
-        if result.get("is_dummy"):
-            return
+        try: 
+            try: 
+                current_objects = self.proxy.get_environment_context() 
+            except Exception: 
+                current_objects = [] 
 
-        # Format the output using Textual's rich markup instead of hardcoded emojis
-        log_text = ""
+            result = await asyncio.to_thread(self.proxy.generate, text, current_objects) 
+            latency = int((time.time() - start) * 1000) 
 
-        #Print the system prompt 
-        if result["prompt"]:
-            log_text += f"[bold yellow]FULL PROMPT:[/bold yellow]\n"
-            log_text += f"[dim]{result['prompt']}[/dim]\n"
-            log_text += f"---\n"
-        
-        if result["json"]:
-            formatted_json = json.dumps(result["json"], indent=2)
-            log_text += f"[bold blue]Validated JSON:[/bold blue]\n[dim]{formatted_json}[/dim]\n"
-        else:
-            log_text += f"[bold blue]Validated JSON:[/bold blue] [dim][NONE][/dim]\n"
-            
-        if result["execution_result"] == "success":
-            log_text += "[bold green][PASS] SUCCESS: Action completed successfully.[/bold green]\n---"
-        else:
-            reason = result.get("error", "Unknown error")
-            log_text += f"[bold red][FAIL] FAILURE: {reason}[/bold red]\n---"
-            
-        # Write to the RichLog
-        log_view = self.query_one(RichLog)
-        log_view.write(log_text)
+            display_payload = {} 
+            if "parsed" in result: 
+                display_payload["recipe"] = result["parsed"] 
+            if "raw_output" in result: 
+                display_payload["raw"] = result["raw_output"] 
+
+            display_payload["objects_mapped"] = current_objects 
+            display_payload["model_name"] = getattr(self.proxy.llm_config, "model", "Ollama Default") 
+            display_payload["endpoint"] = getattr(self.proxy.llm_config, "base_url", "N/A") 
+
+            self.log_panel.add_result( 
+                result=display_payload,  
+                latency=latency,  
+                verbosity_level=self.verbosity 
+            ) 
+
+        except Exception as e: 
+            self.log_panel.add_error(str(e)) 
+        finally: 
+            self.input.set_busy(False)
