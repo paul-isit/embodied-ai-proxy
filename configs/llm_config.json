@@ -1,9 +1,10 @@
 {
-    "provider": "ollama",
-    "model": "gemma3:1b",
-    "base_url": "http://localhost:11434/api/generate",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash-lite",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/models",
     "api_key": "",
     "max_tokens": 512,
-    "temperature": 0.2,
+    "temperature": 0.1,
     "timeout_seconds": 30
 }
+
