@@ -10,15 +10,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
 from src.backend.llm_adapters import get_adapter
-
-class LLMConfig(BaseModel):
-    provider: str
-    model: str
-    base_url: str
-    api_key: str
-    max_tokens: int
-    temperature: float
-    timeout_seconds: int
+from src.backend.llm_config import LLMConfig
 
 class StepSchema(BaseModel):
     step_id: int
@@ -271,10 +263,6 @@ class LLMProxy:
         except KeyError as e:
         # Fallback in case the user deleted a required placeholder in the .md file     
             raise ValueError(f"system_prompt.md missing required placeholder: {e}")
-
-
-### Test script, function will pass the formatted prompt to the configured llm adapter 
-
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
         """Passes the formatted prompt to the configured LLM adapter."""

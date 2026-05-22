@@ -8,92 +8,191 @@ sys.path.append(str(ROOT / "src"))
 
 from backend.llm_proxy import LLMProxy
 
-def load_tests(path):
-    with open(path, "r") as f:
-        data = yaml.safe_load(f)
+# ── Argument Parser ───────────────────────────────────────────────
+def parse_args():
+    """
+    Parses command line arguments passed in by the researcher.
+    Example:
+        python evaluate_proxy.py --config configs/ --tests tests/test_cases.yaml
+    """
+    parser = argparse.ArgumentParser(description="LLM Proxy Test Runner")
 
-    return data.get("tests", data)
+    parser.add_argument(
+        "--config-dir",
+        type=str,
+        required=True,
+        help="Path to the directory containing the context config files"
+    )
+    parser.add_argument(
+        "--tests",
+        type=str,
+        required=True,
+        help="Path to the YAML file containing the test cases"
+    )
 
-def extract_actions(recipe: dict):
-    return [step.get("action", "").lower() for step in recipe.get("steps", [])]
+    return parser.parse_args()
 
+# ── Load Test Cases ───────────────────────────────────────────────
+def load_test_cases(test_path: str) -> list:
+    """
+    Loads the YAML test cases file and returns a list of test cases.
+    """
+    path = Path(test_path)
 
-def validate_basic_structure(recipe):
-    if "recipe_name" not in recipe:
-        return False
-    if "steps" not in recipe:
-        return False
-    if not isinstance(recipe["steps"], list):
-        return False
-    return True
+    try:
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        return data["test_cases"]
+    except FileNotFoundError:
+        print(f"Test file not found: {path}")
+        raise
+    except yaml.YAMLError as e:
+        print(f"Invalid YAML in test file: {e}")
+        raise
 
+# ── Validate Response ─────────────────────────────────────────────
+def validate_response(test_case: dict, result: dict) -> tuple[bool, list[str]]:
+    """
+    Validates the LLM response against the expected values in the test case.
+    Returns a tuple of (passed: bool, failures: list of failure messages)
+    """
+    failures = []
+    expected = test_case.get("expected", {})
 
-def run_tests(proxy, tests):
+    # Check if the proxy returned a valid JSON response
+    if result["json"] is None:
+        failures.append("No JSON returned from LLM")
+        return False, failures
+
+    response_json = result["json"]
+
+    # Check recipe has steps
+    steps = response_json.get("steps", [])
+    if not steps:
+        failures.append("No steps found in response")
+        return False, failures
+
+    # Get all actions and targets from the steps
+    all_actions = [step.get("action") for step in steps]
+    all_targets = [
+        step.get("parameters", {}).get("target")
+        for step in steps
+        if (step.get("parameters") or {}).get("target")  # ← handles None parameters
+    ]
+
+    # Check first action
+    if "first_action" in expected:
+        if all_actions[0] != expected["first_action"]:
+            failures.append(
+                f"First action should be '{expected['first_action']}' "
+                f"but got '{all_actions[0]}'"
+            )
+
+    # Check last action
+    if "last_action" in expected:
+        if all_actions[-1] != expected["last_action"]:
+            failures.append(
+                f"Last action should be '{expected['last_action']}' "
+                f"but got '{all_actions[-1]}'"
+            )
+
+    # Check required actions are present
+    if "must_contain_actions" in expected:
+        for action in expected["must_contain_actions"]:
+            if action not in all_actions:
+                failures.append(f"Missing expected action: '{action}'")
+
+    # Check required targets are present
+    if "must_contain_targets" in expected:
+        for target in expected["must_contain_targets"]:
+            if target not in all_targets:
+                failures.append(f"Missing expected target: '{target}'")
+
+    passed = len(failures) == 0
+    return passed, failures
+
+# ── Run Tests ─────────────────────────────────────────────────────
+def run_tests(proxy: LLMProxy, test_cases: list) -> None:
+    """
+    Runs all test cases and prints a summary report.
+    """
+    passed_count = 0
+    failed_count = 0
     results = []
 
-    for i, test in enumerate(tests, 1):
-        name = test.get("name", f"test_{i}")
-        prompt = test.get("prompt", "")
-        objects = test.get("available_objects", [])
-        expected_steps = test.get("expected", {}).get("steps", [])
-        expected_actions = test.get("expected_actions") or test.get("expected", [])
+    print("\n" + "=" * 60)
+    print("  LLM PROXY TEST RUNNER")
+    print("=" * 60 + "\n")
 
-        print(f"\n[Test {i}] {name}")
+    for i, test_case in enumerate(test_cases, 1):
+        name    = test_case.get("name", f"Test {i}")
+        prompt  = test_case.get("prompt", "")
+        objects = test_case.get("available_objects", [])
+
+        print(f"[Test {i}] {name}")
+        print(f"Prompt: \"{prompt}\"")
 
         try:
+            # Uses generate() — no ROS2 bridge needed
             result = proxy.generate(prompt, objects)
-            recipe = result["parsed"]
+            wrapped = {"json": result["parsed"] if isinstance(result["parsed"], dict) else result["parsed"].model_dump()}
 
-            if not validate_basic_structure(recipe):
-                print("  Result: FAIL (invalid structure)")
-                results.append(False)
-                continue
+            passed, failures = validate_response(test_case, wrapped)
 
-            actual_actions = extract_actions(recipe)
-
-            # Compare prefix match (flexible)
-            passed = actual_actions[:len(expected_actions)] == expected_actions
-
-            print("  Expected Actions:", expected_actions)
-            print("  Actual Actions  :", actual_actions)
-
-            print("  Result:", "PASS" if passed else "FAIL")
-            results.append(passed)
+            if passed:
+                print(f"  Result: PASS\n")
+                passed_count += 1
+            else:
+                print(f"  Result: FAIL")
+                for failure in failures:
+                    print(f"    → {failure}")
+                print()
+                failed_count += 1
 
         except Exception as e:
-            print("  Result: FAIL (Exception)")
-            print("  Error:", str(e))
-            results.append(False)
+            print(f"  Result: FAIL (Exception)")
+            print(f"  Error: {str(e)}\n")
+            failed_count += 1
+            passed = False
+            failures = [str(e)]
 
-    return results
-    
+        results.append({
+            "name": name,
+            "passed": passed,
+            "failures": failures
+        })
+
+    # ── Summary Report ────────────────────────────────────────────
+    print("=" * 60)
+    print("  SUMMARY")
+    print("=" * 60)
+    print(f"  Total  : {len(test_cases)}")
+    print(f"  Passed : {passed_count}")
+    print(f"  Failed : {failed_count}")
+    print("=" * 60)
+
+    if failed_count > 0:
+        print("\nFailed Tests:")
+        for r in results:
+            if not r["passed"]:
+                print(f"   {r['name']}")
+                for failure in r["failures"]:
+                    print(f"     → {failure}")
+    print()
+
+# ── Entry Point ───────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config-dir", required=True)
-    parser.add_argument("--tests", required=True)
+    args = parse_args()
 
-    args = parser.parse_args()
-
-    print("--- Initializing LLM Proxy ---")
+    print(f"Loading config from: {args.config_dir}")
     proxy = LLMProxy(args.config_dir)
-    print("Proxy initialized successfully.")
+    print(f"Proxy initialized successfully.")
 
-    tests = load_tests(args.tests)
+    print(f"Loading test cases from: {args.tests}")
+    test_cases = load_test_cases(args.tests)
+    print(f"Found {len(test_cases)} test cases")
 
-    print("\n--- Running Tests ---")
-    results = run_tests(proxy, tests)
-
-    passed = sum(results)
-    total = len(results)
-
-    print("\n========================================")
-    print(" BULK TEST SUMMARY")
-    print("========================================")
-    print(f" Total Tests Run : {total}")
-    print(f" Passed          : {passed}")
-    print(f" Failed          : {total - passed}")
-    print("========================================")
-
+    run_tests(proxy, test_cases)
 
 if __name__ == "__main__":
     main()

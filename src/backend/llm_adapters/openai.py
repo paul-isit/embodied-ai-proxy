@@ -1,7 +1,10 @@
+import json
 import requests
 from .base import BaseLLMAdapter
 
+#API reference: https://developers.openai.com/api/docs
 class OpenAIAdapter(BaseLLMAdapter):
+
     def generate(self, prompt: str) -> str:
         payload = {
             "model": self.config.model,
@@ -16,17 +19,5 @@ class OpenAIAdapter(BaseLLMAdapter):
             "Content-Type": "application/json"
         }
 
-        try:
-            response = requests.post(
-                self.config.base_url,
-                json=payload,
-                headers=headers,
-                timeout=self.config.timeout_seconds
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"].strip()
-
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(
-                f"Failed to connect to OpenAI at {self.config.base_url}. Error: {e}"
-            )
+        data = self._post(self.config.base_url, payload, headers)
+        return data["choices"][0]["message"]["content"].strip()

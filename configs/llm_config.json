@@ -1,9 +1,9 @@
 {
-    "provider": "gemini",
-    "model": "gemini-2.5-flash-lite",
-    "base_url": "https://generativelanguage.googleapis.com/v1beta/models",
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1/chat/completions",
     "api_key": "",
-    "max_tokens": 512,
+    "max_tokens": 1024,
     "temperature": 0.1,
     "timeout_seconds": 30
 }

@@ -1,7 +1,12 @@
+import json
 import requests
 from .base import BaseLLMAdapter
 
+#API reference: https://platform.claude.com/docs/en/api/messages/create
+
+ANTHROPIC_API_VERSION = "2023-06-01"
 class AnthropicAdapter(BaseLLMAdapter):
+
     def generate(self, prompt: str) -> str:
         payload = {
             "model": self.config.model,
@@ -13,21 +18,9 @@ class AnthropicAdapter(BaseLLMAdapter):
         }
         headers = {
             "x-api-key": self.config.api_key,
-            "anthropic-version": "2023-06-01",
+            "anthropic-version": "ANTHROPIC_API_VERSION",
             "Content-Type": "application/json"
         }
 
-        try:
-            response = requests.post(
-                self.config.base_url,
-                json=payload,
-                headers=headers,
-                timeout=self.config.timeout_seconds
-            )
-            response.raise_for_status()
-            return response.json()["content"][0]["text"].strip()
-
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(
-                f"Failed to connect to Anthropic at {self.config.base_url}. Error: {e}"
-            )
+        data = self._post(self.config.base_url, payload, headers)
+        return data["content"][0]["text"].strip()
