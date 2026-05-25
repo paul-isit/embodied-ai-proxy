@@ -58,6 +58,14 @@ class LLMProxy:
             if self.ws is None:
                 self.ws = websocket.create_connection(self.bridge_url, timeout=60.0)
 
+                # Subscribe to the telemetry node's system status topic
+                subscribe_msg = {
+                    "op": "subscribe",
+                    "topic": "/system/status",
+                    "type": "kinova_interfaces/msg/SystemSummary"
+                }
+                self.ws.send(json.dumps(subscribe_msg))
+
                 if self.on_connection_change:
                     self.on_connection_change(True)
                     
@@ -76,6 +84,8 @@ class LLMProxy:
                         if req_id in self.pending_requests:
                             self.pending_requests[req_id]["response"] = response
                             self.pending_requests[req_id]["event"].set()
+                elif response.get("op") == "publish" and response.get("topic") == "/system/status":
+                    self._handle_telemetry_message(response.get("msg", {}))
             except websocket.WebSocketTimeoutException:
                 continue
                 # Expected timeout due to inactivity, just keep listening
@@ -103,6 +113,44 @@ class LLMProxy:
         with self.req_lock:
             for req in self.pending_requests.values():
                 req["event"].set()
+
+    def _handle_telemetry_message(self, msg: dict):
+        """Translates and logs the overall system status from the telemetry node."""
+        state_map = {
+            0: "READY (HEALTHY)",
+            1: "BUSY (EXECUTING)",
+            2: "FAULT (CRITICAL)"
+        }
+        
+        summary_state = msg.get("summary_state", -1)
+        system_state_str = state_map.get(summary_state, "UNKNOWN")
+        
+        report = "\n" + "="*70 + "\n"
+        report += f" SYSTEM GLOBAL STATUS: {system_state_str}\n"
+        report += "="*70 + "\n"
+
+        individual_states = msg.get("individual_states", [])
+        if not individual_states:
+            report += "  No nodes reporting yet...\n"
+        else:
+            for idx, state in enumerate(individual_states):
+                node_state_map = {
+                    0: "IDLE",
+                    1: "BUSY",
+                    2: "FAULT"
+                }
+                node_state = state.get("state", -1)
+                node_state_str = node_state_map.get(node_state, "UNKNOWN")
+                
+                valid_str = "VALID" if state.get("last_command_valid") else "INVALID"
+
+                report += f"  {idx+1}. [{state.get('node_name', 'UNKNOWN')}]\n"
+                report += f"     Status State: {node_state_str}\n"
+                report += f"     Last Command: {valid_str}\n"
+                report += f"     Status Message: '{state.get('status_message', '')}'\n"
+                report += "-" * 50 + "\n"
+        report += "="*70
+        logging.info(report)
 
     def check_bridge_connection(self) -> bool:
         """
