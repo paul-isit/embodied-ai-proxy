@@ -40,7 +40,14 @@ embodied-ai-proxy/
     │   └── tui_app.py              # Terminal User Interface
     └── backend/                    # Core Logic
         ├── defaults.py
-        └── llm_proxy.py            # Main proxy class handling LLM and ROS WebSocket comms
+        ├── llm_proxy.py            # Main proxy class handling LLM and ROS WebSocket comms
+        └── llm_adapters/           # Modular LLM provider adapters
+            ├── __init__.py         # Adapter registry
+            ├── base.py             # Base adapter class
+            ├── ollama.py           # Ollama adapter (local)
+            ├── openai.py           # OpenAI adapter
+            ├── anthropic.py        # Anthropic adapter
+            └── gemini.py           # Gemini adapter
 ```
 
 ## Setup and Installation
@@ -91,7 +98,15 @@ python3 main.py
 ```
 
 ## Configuration
-Update `configs/llm_config.json` to point to your local LLM provider. By default, it expects an Ollama instance running locally (e.g., `http://localhost:11434/api/generate`). Ensure the `format` is set properly in `llm_proxy.py` to enforce strict JSON output from the model.
+Update `configs/llm_config.json` to point to your LLM provider. By default, it expects an Ollama instance running locally (e.g., `http://localhost:11434/api/generate`), leaving the API key field blank. No code changes are needed to switch providers or models, just update the 'llm_configs.json' file to your respective configurations of your provider. Ensure all fields are correct to the provider and the API key is working. 
+
+The following LLM providers are supported:
+
+  1. Ollama (running locally)
+  2. Google Gemini (API key)
+  3. OpenAI (API key)
+  4. Anthropic (API key)
+
 ## Testing the proxy with YAML scripts
 
 Run Ollama and pull the LLM
