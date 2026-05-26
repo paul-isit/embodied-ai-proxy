@@ -1,8 +1,4 @@
-import json
-import requests
-from urllib.parse import urljoin
 from .base import BaseLLMAdapter
-
 
 #API reference: https://ai.google.dev/api/generate-content
 class GeminiAdapter(BaseLLMAdapter):

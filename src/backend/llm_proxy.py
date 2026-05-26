@@ -2,7 +2,6 @@ import json
 import logging
 import uuid
 import websocket
-import requests
 import threading
 import re
 from pathlib import Path
