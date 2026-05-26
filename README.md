@@ -38,8 +38,6 @@ embodied-ai-proxy/
     ├── frontend/                   # UI Components
     │   ├── tui_app.py              # Terminal User Interface
     │   ├── styles.css              # TUI styling and layout config
-    │   ├── proxy_client.py         # Handles backend / bridge communication
-    │   │        
     │   └── components/             # Further configurations for TUI
     │        ├── formatter.py       # Formats output for display in TUI
     │        ├── input_bar.py       # Handles user command input
