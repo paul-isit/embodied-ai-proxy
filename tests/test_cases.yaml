@@ -1,0 +1,28 @@
+
+
+test_cases:
+
+  - name: "Pick up red cube"
+    prompt: "pick up the red cube and place it on the delivery tray"
+    expected:
+      recipe_name: "Pick and Place Red Cube"
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["move_arm", "gripper", "relative_move"]
+      must_contain_targets: ["red_cube", "delivery_tray"]
+
+  - name: "Pick up blue block"
+    prompt: "pick up the blue block and put it in the dropoff zone"
+    expected:
+      recipe_name: "Pick and Place Blue Block"
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["move_arm", "gripper"]
+      must_contain_targets: ["blue_block", "dropoff_zone"]
+
+  - name: "Wave goodbye"
+    prompt: "wave goodbye"
+    expected:
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["relative_move"]

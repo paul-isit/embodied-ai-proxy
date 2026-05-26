@@ -1,0 +1,10 @@
+from pydantic import BaseModel
+
+class LLMConfig(BaseModel):
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    max_tokens: int
+    temperature: float
+    timeout_seconds: int

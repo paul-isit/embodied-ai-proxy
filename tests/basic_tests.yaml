@@ -1,58 +1,52 @@
-tests:
+test_cases:
 
-  - name: Pick apple
+  - name: "Pick Apple"
     prompt: "pick up apple"
-    available_objects: ["apple", "banana"]
-    expected_actions:
-      - home
-      - gripper
-      - move_arm
-      - gripper
+    expected:
+      recipe_name: "Pick Apple"
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["gripper", "move_arm"]
+      must_contain_targets: ["apple"]
 
-  - name: Place banana
+  - name: "Place Banana"
     prompt: "pick banana and place it back"
-    available_objects: ["banana"]
-    expected_actions:
-      - home
-      - move_arm
-      - gripper
+    expected:
+      recipe_name: "Place Banana"
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["move_arm", "gripper"]
+      must_contain_targets: ["banana"]
 
-  - name: Invalid object
+  - name: "Invalid Object"
     prompt: "pick car"
-    available_objects: ["apple"]
-    expected_actions: []
+    expected:
+      must_contain_actions: []
+      must_contain_targets: []
 
-  - name: Pick apple and place on tray
+  - name: "Pick Apple and Place on Tray"
     prompt: "pick up the apple and place it on the tray"
-    available_objects: ["apple", "tray", "banana"]
-    expected_actions:
-      - home
-      - gripper
-      - move_arm
-      - gripper
-      - relative_move
-      - move_arm
-      - gripper
-      - home
+    expected:
+      recipe_name: "Pick and Place Apple on Tray"
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["gripper", "move_arm", "relative_move"]
+      must_contain_targets: ["apple", "tray"]
 
-  - name: Pick banana and return home
+  - name: "Pick Banana and Return Home"
     prompt: "pick up the banana"
-    available_objects: ["banana", "tray"]
-    expected_actions:
-      - home
-      - gripper
-      - move_arm
-      - gripper
-      - relative_move
+    expected:
+      recipe_name: "Pick Banana"
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["gripper", "move_arm", "relative_move"]
+      must_contain_targets: ["banana"]
 
-  - name: Relocate apple to inspection zone
+  - name: "Relocate Apple to Inspection Zone"
     prompt: "move the apple to the inspection zone"
-    available_objects: ["apple", "inspection_zone"]
-    expected_actions:
-      - home
-      - gripper
-      - move_arm
-      - gripper
-      - relative_move
-      - move_arm
-      - gripper
+    expected:
+      recipe_name: "Relocate Apple to Inspection Zone"
+      first_action: "home"
+      last_action: "home"
+      must_contain_actions: ["gripper", "move_arm", "relative_move"]
+      must_contain_targets: ["apple", "inspection_zone"]
