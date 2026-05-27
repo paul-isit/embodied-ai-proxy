@@ -11,6 +11,7 @@ from typing import List, Dict, Optional, Any
 from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
 from src.backend.llm_adapters import get_adapter
 from src.backend.llm_config import LLMConfig
+from src.backend.recipe_database import RecipeDatabase
 
 class StepSchema(BaseModel):
     step_id: int
@@ -45,6 +46,7 @@ class LLMProxy:
         self.receive_thread = None
         self.on_connection_change = None
         self.adapter = get_adapter(self.llm_config)
+        self.recipe_db = RecipeDatabase()
 
     def connect(self):
         """Initializes a persistent WebSocket connection and dispatcher thread if one doesn't exist."""
@@ -237,8 +239,10 @@ class LLMProxy:
         Builds the final prompt by injecting dynamic variables into the 
         system_prompt template defined by the user.
         """
-        # Convert schema to string
-        schema_str = json.dumps(self.schema_block.model_dump(), indent=2)
+        # Query vector database for relevant recipes
+        relevant_recipes = self.recipe_db.query(user_text, n_results=2)
+        # Convert relevant recipes to string
+        schema_str = json.dumps(relevant_recipes, indent=2)
 
         # Convert objects list to a nice string format
         objects_str = ("\n".join([f"- {obj}" for obj in available_objects]) if available_objects else "No objects currently mapped.")
