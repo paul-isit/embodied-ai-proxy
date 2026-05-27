@@ -107,6 +107,19 @@ The following LLM providers are supported:
   3. OpenAI (API key)
   4. Anthropic (API key)
 
+## Interaction Logging
+
+Every interaction with the LLM (from either the Proxy UI or the YAML automated tests) is automatically logged to the `logs/` directory at the project root base. 
+
+The logging mechanism records:
+- **Timestamp** and unique interaction identifier.
+- **The full structured query prompt** (including system prompt, workspace description, object lists, JSON schemas, and user commands).
+- **The raw LLM response** or any connection/API errors encountered during generation.
+
+### Log Outputs
+- **Individual Logs**: Each prompt-response pair is written to a dedicated, timestamped file under `logs/interaction_<timestamp>_<uuid>.log` for easy, isolated analysis of specific runs.
+- **Master Log**: All interactions are sequentially appended to a unified thread-safe master file under `logs/all_interactions.log`.
+
 ## Testing the proxy with YAML scripts
 
 Run Ollama and pull the LLM
