@@ -1,5 +1,3 @@
-import json
-import requests
 from .base import BaseLLMAdapter
 
 #API reference: https://developers.openai.com/api/docs

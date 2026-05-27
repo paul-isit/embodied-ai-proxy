@@ -1,5 +1,3 @@
-import json
-import requests
 from .base import BaseLLMAdapter
 
 #API reference: https://github.com/ollama/ollama/blob/main/docs/api.md

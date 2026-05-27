@@ -1,10 +1,7 @@
-import json
-import requests
 from .base import BaseLLMAdapter
 
-#API reference: https://platform.claude.com/docs/en/api/messages/create
-
 ANTHROPIC_API_VERSION = "2023-06-01"
+#API reference: https://platform.claude.com/docs/en/api/messages/create
 class AnthropicAdapter(BaseLLMAdapter):
 
     def generate(self, prompt: str) -> str:
@@ -18,7 +15,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         }
         headers = {
             "x-api-key": self.config.api_key,
-            "anthropic-version": "ANTHROPIC_API_VERSION",
+            "anthropic-version": ANTHROPIC_API_VERSION,
             "Content-Type": "application/json"
         }
 
