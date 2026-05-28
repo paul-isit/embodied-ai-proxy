@@ -10,7 +10,7 @@
       "step_id": 2,
       "action": "gripper",
       "parameters": {
-        "position": "float (0.0 = closed, 1.0 = open)"
+        "position": "float (1.0 = closed, 0.0 = open)"
       },
       "description": "string"
     },
@@ -26,7 +26,7 @@
       "step_id": 4,
       "action": "gripper",
       "parameters": {
-        "position": "float (0.0 = closed, 1.0 = open)"
+        "position": "float (1.0 = closed, 0.0 = open)"
       },
       "description": "string"
     },
@@ -50,7 +50,7 @@
       "step_id": 7,
       "action": "gripper",
       "parameters": {
-        "position": "float (0.0 = closed, 1.0 = open)"
+        "position": "float (1.0 = closed, 0.0 = open)"
       },
       "description": "string"
     },
