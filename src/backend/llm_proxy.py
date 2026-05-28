@@ -2,22 +2,14 @@ import json
 import logging
 import uuid
 import websocket
-import requests
 import threading
 import re
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
-
-class LLMConfig(BaseModel):
-    provider: str
-    model: str
-    base_url: str
-    api_key: str
-    max_tokens: int
-    temperature: float
-    timeout_seconds: int
+from src.backend.llm_adapters import get_adapter
+from src.backend.llm_config import LLMConfig
 
 class StepSchema(BaseModel):
     step_id: int
@@ -51,6 +43,7 @@ class LLMProxy:
         self.pending_requests = {}
         self.receive_thread = None
         self.on_connection_change = None
+        self.adapter = get_adapter(self.llm_config)
 
     def connect(self):
         """Initializes a persistent WebSocket connection and dispatcher thread if one doesn't exist."""
@@ -271,37 +264,9 @@ class LLMProxy:
             raise ValueError(f"system_prompt.md missing required placeholder: {e}")
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
-        """Passes the formatted prompt to the remote LLM API (Ollama)."""
-        payload = {
-            "model": self.llm_config.model,
-            "prompt": formatted_prompt,
-            "stream": False,
-            "format": "json",
-            "options": {
-                "temperature": self.llm_config.temperature,
-                "num_predict": self.llm_config.max_tokens
-            }
-        }
+        """Passes the formatted prompt to the configured LLM adapter."""
+        return self.adapter.generate(formatted_prompt)
 
-        try:
-            # We add a timeout so the UI doesn't hang forever if the host isn't reachable
-            response = requests.post(self.llm_config.base_url, json=payload, timeout=self.llm_config.timeout_seconds)
-            if not response.ok:
-                try:
-                    error_msg = response.json().get("error", response.text)
-                except ValueError:
-                    error_msg = response.text
-                raise RuntimeError(f"Ollama API Error ({response.status_code}): {error_msg}")
-
-            data = response.json()
-            return data.get("response", "").strip()
-
-        except requests.exceptions.RequestException as e:
-
-            raise RuntimeError(
-                f"Failed to connect to Local LLM at "
-                f"{self.llm_config.base_url}. Error: {e}"
-            )
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
         """
