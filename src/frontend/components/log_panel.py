@@ -41,9 +41,16 @@ class LogPanel(RichLog):
             self.write(f"[#888888]Detected Objects: {obj_str}[/#888888]")
 
         if verbosity_level >= 3:
-            model = result.get("model_name", "Unknown")
-            endpoint = result.get("endpoint", "Unknown")
+            meta = result.get("meta", {})
+
             self.write("\n[#888888]--- METADATA ---[/#888888]")
-            self.write(f"[#888888]Model: {model} | Endpoint: {endpoint} | Latency: {latency}ms[/#888888]")
+            self.write(
+                "[#888888]"
+                f"Latency: {meta.get('latency_ms', latency)}ms | "
+                f"Steps: {meta.get('step_count', 0)} | "
+                f"Size: {meta.get('raw_size', 0)} | "
+                f"CPU: {meta.get('cpu_hint', 'n/a')}"
+                "[/#888888]"
+            )
 
         self.write("\n[#888888]──────────────────────────────────────────────────[/#888888]\n")
