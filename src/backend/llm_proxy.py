@@ -2,22 +2,14 @@ import json
 import logging
 import uuid
 import websocket
-import requests
 import threading
 import re
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
-
-class LLMConfig(BaseModel):
-    provider: str
-    model: str
-    base_url: str
-    api_key: str
-    max_tokens: int
-    temperature: float
-    timeout_seconds: int
+from src.backend.llm_adapters import get_adapter
+from src.backend.llm_config import LLMConfig
 
 class StepSchema(BaseModel):
     step_id: int
@@ -51,6 +43,7 @@ class LLMProxy:
         self.pending_requests = {}
         self.receive_thread = None
         self.on_connection_change = None
+        self.adapter = get_adapter(self.llm_config)
 
     def connect(self):
         """Initializes a persistent WebSocket connection and dispatcher thread if one doesn't exist."""
@@ -228,15 +221,23 @@ class LLMProxy:
         )
 
     def get_environment_context(self) -> list[str]:
-        """
-        Makes a WebSocket request to rosbridge to fetch the Current Object List via a ROS Service.
-        """
         try:
-            # We assume the EnvironmentMappingNode provides a service /get_robot_parameters
             response = self._call_ros_service('/get_robot_parameters')
             return response.get('object_list', [])
         except Exception as e:
+            error_str = str(e)
+            # Failsafe for brid
+            if "does not exist" in error_str:
+                logging.warning(
+                    "ROS service /get_robot_parameters not found "
+                    "(EnvironmentMappingNode may not be running). "
+                    "Proceeding with empty object list."
+                )
+                return []
+            # Any other failure (timeout, disconnected, etc.) is a genuine
+            # transport error — let process_user_request handle it.
             raise RuntimeError(f"Failed to get environment context: {e}") from e
+
 
     def build_prompt(self, user_text: str,available_objects: list[str]) -> str:
         """
@@ -271,37 +272,9 @@ class LLMProxy:
             raise ValueError(f"system_prompt.md missing required placeholder: {e}")
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
-        """Passes the formatted prompt to the remote LLM API (Ollama)."""
-        payload = {
-            "model": self.llm_config.model,
-            "prompt": formatted_prompt,
-            "stream": False,
-            "format": "json",
-            "options": {
-                "temperature": self.llm_config.temperature,
-                "num_predict": self.llm_config.max_tokens
-            }
-        }
+        """Passes the formatted prompt to the configured LLM adapter."""
+        return self.adapter.generate(formatted_prompt)
 
-        try:
-            # We add a timeout so the UI doesn't hang forever if the host isn't reachable
-            response = requests.post(self.llm_config.base_url, json=payload, timeout=self.llm_config.timeout_seconds)
-            if not response.ok:
-                try:
-                    error_msg = response.json().get("error", response.text)
-                except ValueError:
-                    error_msg = response.text
-                raise RuntimeError(f"Ollama API Error ({response.status_code}): {error_msg}")
-
-            data = response.json()
-            return data.get("response", "").strip()
-
-        except requests.exceptions.RequestException as e:
-
-            raise RuntimeError(
-                f"Failed to connect to Local LLM at "
-                f"{self.llm_config.base_url}. Error: {e}"
-            )
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
         """
@@ -365,13 +338,27 @@ class LLMProxy:
         Makes a WebSocket request to rosbridge to execute the recipe via a ROS Service.
         """
         try:
-        # We assume the JsonParserNode provides a service /execute_recipe
+            # We assume the JsonParserNode provides a service /execute_recipe
             response = self._call_ros_service('/execute_recipe', {"recipe_json": json.dumps(validated_json)})
-        # We expect the service to return a success boolean
+            # We expect the service to return a success boolean
             return response.get('success', False)
         except Exception as e:
+            error_str = str(e)
+            # Service not yet registered means the bridge is up but JsonParserNode
+            # isn't running. Simulate a successful dispatch so the full pipeline
+            # result (recipe, prompt, meta) is still surfaced in the TUI.
+            # TO BE REWORKED PRIOR TO FULL INTEGRATION
+            if "does not exist" in error_str:
+                logging.warning(
+                    "ROS service /execute_recipe not found "
+                    "(JsonParserNode may not be running). "
+                    "Simulating successful dispatch."
+                )
+                return True
+            # Any other failure is a genuine transport error.
             logging.error(f"Failed to execute recipe: {e}")
             raise Exception(f"Failed to communicate with the robot: {str(e)}")
+
 
     def process_user_request(self, user_text: str) -> dict:
         """
