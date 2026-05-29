@@ -47,8 +47,7 @@ class LogPanel(RichLog):
             self.write(
                 "[#888888]"
                 f"Latency: {meta.get('latency_ms', latency)}ms | "
-                f"Steps: {meta.get('step_count', 0)} | "
-                f"Size: {meta.get('raw_size', 0)} | "
+                f"Steps: {meta.get('step_count', 0)} | ""
                 f"CPU: {meta.get('cpu_hint', 'n/a')}"
                 "[/#888888]"
             )
