@@ -39,7 +39,6 @@ embodied-ai-proxy/
     │   ├── tui_app.py              # Terminal User Interface
     │   ├── styles.css              # TUI styling and layout config
     │   └── components/             # Further configurations for TUI
-    │        ├── formatter.py       # Formats output for display in TUI
     │        ├── input_bar.py       # Handles user command input
     │        ├── log_panel.py       # Displays logs, recipes and system output
     │        ├── sidebar.py         # Column displaying info in TUI
@@ -207,7 +206,7 @@ Level 1 (Filtered): Shows only the final 'Action Recipe' and execution trace
 
 Level 2 (Full Context): Adds 'Workspace Object Map' to verify environmental perception
 
-Level 3 (Engineering): Adds full model metadata, endpoints and latency metrics
+Level 3 (Engineering): Adds full model metadata, CPU utilization and latency metrics
 ```
 
 
