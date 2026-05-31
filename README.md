@@ -140,10 +140,7 @@ Run Ollama and pull the LLM
 ollama serve
 ollama pull gemma3:1b
 ```
-Verify Ollama is running
-```bash
-curl http://localhost:11434/api/tags
-```
+
 ## Set PYTHONPATH
 
 This function uses local imports
