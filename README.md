@@ -2,6 +2,24 @@
 
 A proxy layer for embodied AI systems leveraging ROS2 middleware. This project facilitates communication between high-level Large Language Models (LLMs) and robotic systems by bridging a pure Python inference environment with a ROS2 hardware abstraction layer.
 
+# Prerequisites 
+Before installing the proxy, ensure your host machine meets the following requirements
+
+##Software Requirements##
+**Operating System** Ubuntu 22.04 LTS
+**ROS2** Active installation of ROS2 Humble
+**Language** Python 3.10+
+**Local Inference Engine** An active installation of Ollama (https://ollama.com/) is required if running local models
+
+##Hardware Requirements##
+The project allows for an interchangable LLM API to be utilized, scaling to users host machine's hardware capacity. Reccomended specs for stable performance are:
+| Component | Requirement                            |
+|-----------|----------------------------------------|
+| RAM       | 8GB minimum, 32GB recommended          |
+| CPU       | 6+ cores recommended                   |
+| GPU       | Optional (recommended for larger LLMs) |
+| Storage   | ≥15GB free space                       |
+
 ## System Architecture
 
 The project is divided into two distinct domains to ensure hardware stability and dependency isolation:
@@ -66,6 +84,7 @@ sudo apt-get install ros-humble-rosbridge-suite
 ```
 
 ### 2. Install Python Dependencies
+The project will require active installation of Python dependencies
 ```bash
 pip install -r src/requirements.txt
 ```
@@ -78,7 +97,7 @@ colcon build
 
 ## Running the System
 
-To run the full end-to-end pipeline, you need to open multiple terminals:
+To run the full end-to-end pipeline, you need to open three terminals:
 
 ### Terminal 1: Start the ROS2 Bridge
 ```bash
@@ -99,6 +118,7 @@ ros2 launch kinova_interface robot.launch.py
 ```
 
 ### Terminal 3: Start the Proxy UI
+Access the proxy's Terminal User Interface (TUI) by bashing the following
 ```bash
 python3 main.py
 ```
@@ -202,11 +222,72 @@ The TUI can be utilized with 3 varying levels of verbosity to diagnostics and ba
 These settings can be cycled through via the "Cycle Mode Button" at any time via the TUI
 
 ```bash
-Level 1 (Filtered): Shows only the final 'Action Recipe' and execution trace
+Level 1 (Filtered): Action recipe + execution trace
 
-Level 2 (Full Context): Adds 'Workspace Object Map' to verify environmental perception
+Level 2 (Full Context): All prior + workspace object map
 
-Level 3 (Engineering): Adds full model metadata, CPU utilization and latency metrics
+Level 3 (Engineering): All prior + latency, CPU, model metadata
 ```
+## First Run Checklist ##
+
+If the system does not respond, ensure
+```bash
+- Rosbridge is running on port 9090
+- Middleware has been successfuly launched
+- Ollama is reachable (if used)
+- Correct PYTHONPATH or editable install used
+- No firewall blocking WebSocket connection
+```
+## Common Issues & Troubleshooting ##
+
+rosbridge connection failure
+```bash
+- Confirm rosbridge_serve is running
+- Check port 9090 availability
+```
+LLM not responding
+```bash
+- Verify llm_config.json
+- Confirm local server status or provider API key
+```
+Import errors
+```bash
+- Run from project root
+- Ensure pip install -e or PYTHONPATH is set
+```
+Robot not moving
+```bash
+- Middleware may not be fully initialized
+- Check ROS2 topic/serive availability
+```
+
+## Safety Constraints ##
+
+- All LLM outputs are validated prior to execution
+- Only whitelisted ROS actions are permitted
+- Invalid or malformed JSON is rejected
+- No direct hardware commands bypass the proxy layer
+
+## Extensibility ##
+
+Add new LLM provider
+```bash
+- Implement adapter in llm_adapters/
+- Register in adapter factory
+```
+Add new robot actions
+```bash
+- Extend middleware ROS2 action schema
+- Update validation schema in configs/json_schema.json
+```
+
+## Notes on Performance ##
+
+- LLM latency will vary between providors and model size
+- ROS2 execution latency is non-deterministic under load
+- Reccomended to run on dedicated machine for robotic experiments
+
+
+
 
 
