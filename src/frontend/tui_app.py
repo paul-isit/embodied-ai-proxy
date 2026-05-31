@@ -175,7 +175,7 @@ class EmbodiedProxyApp(App):
             self.input.focus()
 
     @on(Button.Pressed, "#btn_sys")
-    async def handle_sys_info(self) -> None:
+    def handle_sys_info(self) -> None:
         status = "[CONNECTED]" if self.bridge_connected else "[DISCONNECTED]"
         state = "LOCKED" if self._ui_blocked() else "READY"
 
