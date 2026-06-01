@@ -92,7 +92,6 @@ class LLMProxy:
                             self.pending_requests[req_id]["event"].set()
                 elif response.get("op") == "publish" and response.get("topic") == "/system/status":
                     msg = response.get("msg", {})
-                    self._log_telemetry(msg)
                     if self.on_telemetry_update:
                         self.on_telemetry_update(msg)
             except websocket.WebSocketTimeoutException:
@@ -351,21 +350,6 @@ class LLMProxy:
             logging.info(f"Successfully wrote interaction log to {log_filepath}")
         except Exception as e:
             logging.error(f"Failed to write interaction logs: {e}")
-
-    def _log_telemetry(self, msg: dict) -> None:
-        """Logs middleware telemetry to a dedicated log file."""
-        try:
-            project_base = Path(__file__).resolve().parent.parent.parent
-            logs_dir = project_base / "logs"
-            logs_dir.mkdir(parents=True, exist_ok=True)
-            log_path = logs_dir / "telemetry.log"
-            
-            with self._log_lock:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    timestamp = datetime.now().isoformat()
-                    f.write(f"[{timestamp}] SystemSummary: {json.dumps(msg)}\n")
-        except Exception as e:
-            logging.error(f"Failed to log telemetry: {e}")
 
     def generate_llm_response(self, formatted_prompt: str) -> str:
         """Passes the formatted prompt to the configured LLM adapter."""

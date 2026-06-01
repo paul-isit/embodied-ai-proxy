@@ -1,29 +1,65 @@
 {
-  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "You must output ONE of the following two structural states based on the context validation.",
   "oneOf": [
     {
+      "type": "object",
       "description": "State 1: SUCCESS. Use this when all objects exist and a routine can be safely constructed.",
       "properties": {
-        "status": "success",
-        "recipe_name": "Short, descriptive title of the routine",
-        "steps": [
-          {
-            "step_id": "integer (1-indexed sequential step number)",
-            "action": "home | move_arm | relative_move | gripper",
-            "description": "THIS IS REQUIRED FOR EVERY STEP: Brief text explanation of what this specific step does",
-            "parameters": "Object containing arguments specific to the chosen action"
+        "status": {
+          "type": "string",
+          "const": "success"
+        },
+        "recipe_name": {
+          "type": "string",
+          "description": "Short, descriptive title of the routine"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "integer",
+                "description": "1-indexed sequential step number"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["home", "move_arm", "relative_move", "gripper"]
+              },
+              "description": {
+                "type": "string",
+                "description": "Brief text explanation of what this specific step does"
+              },
+              "parameters": {
+                "type": "object",
+                "description": "Arguments specific to the chosen action. If 'home': {}. If 'move_arm': {'target': string (must match an Available Object)}. If 'relative_move': {'vector': 'move_upwards' | 'move_downwards' | 'move_left' | 'move_right'}. If 'gripper': {'position': float between 0.0 and 1.0}."
+              }
+            },
+            "required": ["step_id", "action", "description", "parameters"]
           }
-        ]
-      }
+        }
+      },
+      "required": ["status", "recipe_name", "steps"]
     },
     {
+      "type": "object",
       "description": "State 2: ERROR. Use this if an object is missing, ambiguous, or the command violates workspace constraints.",
       "properties": {
-        "status": "error",
-        "error_type": "missing_object | invalid_command | safety_violation",
-        "message": "Detailed natural language explanation of why the command failed execution."
-      }
+        "status": {
+          "type": "string",
+          "const": "error"
+        },
+        "error_type": {
+          "type": "string",
+          "enum": ["missing_object", "invalid_command", "safety_violation"]
+        },
+        "message": {
+          "type": "string",
+          "description": "Detailed natural language explanation of why the command failed execution."
+        }
+      },
+      "required": ["status", "error_type", "message"]
     }
   ]
 }
