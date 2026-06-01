@@ -1,63 +1,29 @@
 {
-  "recipe_name": "string",
-  "steps": [
+  "type": "object",
+  "description": "You must output ONE of the following two structural states based on the context validation.",
+  "oneOf": [
     {
-      "step_id": 1,
-      "action": "home",
-      "description": "Always start at home position"
+      "description": "State 1: SUCCESS. Use this when all objects exist and a routine can be safely constructed.",
+      "properties": {
+        "status": "success",
+        "recipe_name": "Short, descriptive title of the routine",
+        "steps": [
+          {
+            "step_id": "integer (1-indexed sequential step number)",
+            "action": "home | move_arm | relative_move | gripper",
+            "description": "THIS IS REQUIRED FOR EVERY STEP: Brief text explanation of what this specific step does",
+            "parameters": "Object containing arguments specific to the chosen action"
+          }
+        ]
+      }
     },
     {
-      "step_id": 2,
-      "action": "gripper",
-      "parameters": {
-        "position": "float (1.0 = closed, 0.0 = open)"
-      },
-      "description": "string"
-    },
-    {
-      "step_id": 3,
-      "action": "move_arm",
-      "parameters": {
-        "target": "string (name of target object or location)"
-      },
-      "description": "string"
-    },
-    {
-      "step_id": 4,
-      "action": "gripper",
-      "parameters": {
-        "position": "float (1.0 = closed, 0.0 = open)"
-      },
-      "description": "string"
-    },
-    {
-      "step_id": 5,
-      "action": "relative_move",
-      "parameters": {
-        "vector": "string (move_upwards, move_downwards, move_left, move_right)"
-      },
-      "description": "string"
-    },
-    {
-      "step_id": 6,
-      "action": "move_arm",
-      "parameters": {
-        "target": "string (name of target object or location)"
-      },
-      "description": "string"
-    },
-    {
-      "step_id": 7,
-      "action": "gripper",
-      "parameters": {
-        "position": "float (1.0 = closed, 0.0 = open)"
-      },
-      "description": "string"
-    },
-    {
-      "step_id": 8,
-      "action": "home",
-      "description": "Always return to home position"
+      "description": "State 2: ERROR. Use this if an object is missing, ambiguous, or the command violates workspace constraints.",
+      "properties": {
+        "status": "error",
+        "error_type": "missing_object | invalid_command | safety_violation",
+        "message": "Detailed natural language explanation of why the command failed execution."
+      }
     }
   ]
 }

@@ -6,25 +6,35 @@ import threading
 import re
 from pathlib import Path
 from datetime import datetime
-from pydantic import BaseModel
-from typing import List, Dict, Optional, Any
+from pydantic import BaseModel, Field, RootModel
+from typing import List, Dict, Optional, Any, Literal, Union
 from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
 from src.backend.llm_adapters import get_adapter
 from src.backend.llm_config import LLMConfig
 
 class StepSchema(BaseModel):
     step_id: int
-    action: str
-    description: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
+    action: Literal["home", "move_arm", "relative_move", "gripper"]
+    description: str
+    parameters: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
-class JSONSchema(BaseModel):
+class RecipeResponse(BaseModel):
+    status: Literal["success"] = "success"
     recipe_name: str
     steps: List[StepSchema]
 
+class ErrorResponse(BaseModel):
+    status: Literal["error"] = "error"
+    error_type: Literal["missing_object", "invalid_command", "safety_violation"]
+    message: str
+
+# Use Pydantic's RootModel to handle top-level Union parsing cleanly
+class UnifiedResponse(RootModel):
+    root: Union[RecipeResponse, ErrorResponse] = Field(..., discriminator="status")
+
 class SystemConfig(BaseModel):
     llm: LLMConfig
-    json_schema: JSONSchema
+    json_schema: Dict[str, Any]
     system_prompt: str
 
 class LLMProxy:
@@ -46,6 +56,7 @@ class LLMProxy:
         self.on_connection_change = None
         self.adapter = get_adapter(self.llm_config)
         self._log_lock = threading.Lock()
+        self.on_telemetry_update = None
 
     def connect(self):
         """Initializes a persistent WebSocket connection and dispatcher thread if one doesn't exist."""
@@ -55,6 +66,14 @@ class LLMProxy:
 
                 if self.on_connection_change:
                     self.on_connection_change(True)
+                    
+                # Subscribe to middleware telemetry
+                subscribe_msg = {
+                    "op": "subscribe",
+                    "topic": "/system/status",
+                    "type": "kinova_interfaces/msg/SystemSummary"
+                }
+                self.ws.send(json.dumps(subscribe_msg))
                     
                 self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
                 self.receive_thread.start()
@@ -71,6 +90,11 @@ class LLMProxy:
                         if req_id in self.pending_requests:
                             self.pending_requests[req_id]["response"] = response
                             self.pending_requests[req_id]["event"].set()
+                elif response.get("op") == "publish" and response.get("topic") == "/system/status":
+                    msg = response.get("msg", {})
+                    self._log_telemetry(msg)
+                    if self.on_telemetry_update:
+                        self.on_telemetry_update(msg)
             except websocket.WebSocketTimeoutException:
                 continue
                 # Expected timeout due to inactivity, just keep listening
@@ -218,7 +242,7 @@ class LLMProxy:
 
         return SystemConfig(
             llm=LLMConfig(**llm_config),
-            json_schema=JSONSchema(**json_schema_raw),
+            json_schema=json_schema_raw,
             system_prompt=system_prompt
         )
 
@@ -250,7 +274,7 @@ class LLMProxy:
         system_prompt template defined by the user.
         """
         # Convert schema to string
-        schema_str = json.dumps(self.schema_block.model_dump(), indent=2)
+        schema_str = json.dumps(self.schema_block, indent=2)
 
         # Convert objects list to a nice string format
         objects_str = ("\n".join([f"- {obj}" for obj in available_objects]) if available_objects else "No objects currently mapped.")
@@ -328,6 +352,21 @@ class LLMProxy:
         except Exception as e:
             logging.error(f"Failed to write interaction logs: {e}")
 
+    def _log_telemetry(self, msg: dict) -> None:
+        """Logs middleware telemetry to a dedicated log file."""
+        try:
+            project_base = Path(__file__).resolve().parent.parent.parent
+            logs_dir = project_base / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            log_path = logs_dir / "telemetry.log"
+            
+            with self._log_lock:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    timestamp = datetime.now().isoformat()
+                    f.write(f"[{timestamp}] SystemSummary: {json.dumps(msg)}\n")
+        except Exception as e:
+            logging.error(f"Failed to log telemetry: {e}")
+
     def generate_llm_response(self, formatted_prompt: str) -> str:
         """Passes the formatted prompt to the configured LLM adapter."""
         try:
@@ -364,7 +403,7 @@ class LLMProxy:
                 if not match:
                     raise ValueError("No JSON object found in LLM response.")
                 parsed_json_dict = json.loads(match.group(0))
-            validated_data = JSONSchema(**parsed_json_dict).model_dump()
+            validated_data = UnifiedResponse.model_validate(parsed_json_dict).model_dump()
             return validated_data
         except Exception as e:
             raise ValueError(f"Failed to parse LLM output as JSON: {e}") from e
