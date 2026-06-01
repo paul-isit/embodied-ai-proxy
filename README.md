@@ -288,14 +288,14 @@ tests:
       - relative_move
 ```
 Required fiels per test include
-```bash
-| Field             | Type   | Description                         |
+
+| Field            | Type   | Description                         |
 |------------------|--------|-------------------------------------|
 | name             | string | Human-readable test label           |
 | prompt           | string | User command sent to the LLM        |
 | available_objects| list   | Objects available in environment    |
 | expected_actions | list   | Expected robot action sequence      |
-```
+
 Place completed YAML file in the "tests" folder
 
 ## Example Test Execution
