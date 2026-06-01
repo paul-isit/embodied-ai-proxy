@@ -61,23 +61,23 @@ No direct robot commands are accepted from user input.
 ### Output Contract (LLM → Proxy)
 
 All LLM outputs MUST conform to the validated JSON schema defined in:
-
+```bash
 configs/json_schema.json
-
+```
 Expected structure:
-
+```bash
 {
   "action": "move_arm",
   "target": "object_name",
   "mode": "absolute | relative"
 }
-
+```
 ### Validation Rules
 
 Before execution, all outputs must pass:
 ```text
 1. JSON parsing validation
-2. Schema validation (Pydantic / JSON Schema)
+2. Schema validation 
 3. Action whitelist enforcement
 4. Field completeness checks
 ```
@@ -87,7 +87,6 @@ Before execution, all outputs must pass:
 If any validation step fails:
 ```text
 - Output is rejected
-- LLM is optionally re-prompted (if retry enabled)
 - No ROS2 message is transmitted
 - System defaults to safe idle state
 ```
