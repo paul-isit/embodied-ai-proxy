@@ -1,7 +1,7 @@
 {
-    "provider": "openai",
-    "model": "gpt-4o-mini",
-    "base_url": "https://api.openai.com/v1/chat/completions",
+    "provider": "ollama",
+    "model": "gemma3:1b",
+    "base_url": "http://localhost:11434/api/generate",
     "api_key": "",
     "max_tokens": 1024,
     "temperature": 0.1,

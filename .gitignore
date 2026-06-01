@@ -16,6 +16,7 @@ textual.log
 
 build/
 install/
+log/
 logs/
 ros2_bridge_ws/build/
 ros2_bridge_ws/install/

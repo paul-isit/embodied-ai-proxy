@@ -227,11 +227,22 @@ class LLMProxy:
         Makes a WebSocket request to rosbridge to fetch the Current Object List via a ROS Service.
         """
         try:
-            # We assume the EnvironmentMappingNode provides a service /get_robot_parameters
             response = self._call_ros_service('/get_robot_parameters')
             return response.get('object_list', [])
         except Exception as e:
+            error_str = str(e)
+            # Failsafe for brid
+            if "does not exist" in error_str:
+                logging.warning(
+                    "ROS service /get_robot_parameters not found "
+                    "(EnvironmentMappingNode may not be running). "
+                    "Proceeding with empty object list."
+                )
+                return []
+            # Any other failure (timeout, disconnected, etc.) is a genuine
+            # transport error — let process_user_request handle it.
             raise RuntimeError(f"Failed to get environment context: {e}") from e
+
 
     def build_prompt(self, user_text: str,available_objects: list[str]) -> str:
         """
@@ -390,13 +401,19 @@ class LLMProxy:
         Makes a WebSocket request to rosbridge to execute the recipe via a ROS Service.
         """
         try:
-        # We assume the JsonParserNode provides a service /execute_recipe
+            # We assume the JsonParserNode provides a service /execute_recipe
             response = self._call_ros_service('/execute_recipe', {"recipe_json": json.dumps(validated_json)})
-        # We expect the service to return a success boolean
+            # We expect the service to return a success boolean
             return response.get('success', False)
         except Exception as e:
+            error_str = str(e)
+            if "does not exist" in error_str:
+                logging.error(f"ROS service /execute_recipe not found (JsonParserNode may not be running).")
+                raise Exception("ROS service /execute_recipe not found (JsonParserNode may not be running).")
+            # Any other failure is a genuine transport error.
             logging.error(f"Failed to execute recipe: {e}")
             raise Exception(f"Failed to communicate with the robot: {str(e)}")
+
 
     def process_user_request(self, user_text: str) -> dict:
         """
@@ -419,14 +436,20 @@ class LLMProxy:
             prompt = self.build_prompt(user_text, available_objects)
             raw_response = self.generate_llm_response(prompt)
             validated_json = self.validate_and_extract_json(raw_response)
-            success = self.send_to_middleware(validated_json)
+            
+            try:
+                success = self.send_to_middleware(validated_json)
+                execution_result = "success" if success else "failure"
+                error_msg = None if success else "Robot failed to execute the recipe."
+            except Exception as e:
+                execution_result = str(e)
+                error_msg = None
 
             return {
                 "prompt": prompt,
                 "json": validated_json,
-                "execution_result": ("success" if success else "failure"
-                ),
-                "error": None if success else "Robot failed to execute the recipe."
+                "execution_result": execution_result,
+                "error": error_msg
             }
         except Exception as e:
             return {
