@@ -5,13 +5,13 @@ A proxy layer for embodied AI systems leveraging ROS2 middleware. This project f
 ## Prerequisites 
 Before installing the proxy, ensure your host machine meets the following requirements
 
-### Software Requirements##
+### Software Requirements
 **Operating System** Ubuntu 22.04 LTS
 **ROS2** Active installation of ROS2 Humble
 **Language** Python 3.10+
 **Local Inference Engine** An active installation of Ollama (https://ollama.com/) is required if running local models
 
-### Hardware Requirements##
+### Hardware Requirements
 The project allows for an interchangeable LLM API to be utilized, scaling to users host machine's hardware capacity. Reccomended specs for stable performance are:
 | Component | Requirement                            |
 |-----------|----------------------------------------|
@@ -58,7 +58,7 @@ The Embodied AI Proxy enforces a strict execution contract between the LLM layer
 
 No direct robot commands are accepted from user input.
 
-### Output Contract (LLM → Proxy)
+### Output Contract (LLM < Proxy)
 
 All LLM outputs MUST conform to the validated JSON schema defined in:
 ```bash
