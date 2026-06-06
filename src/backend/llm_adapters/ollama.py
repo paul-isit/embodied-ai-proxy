@@ -15,5 +15,6 @@ class OllamaAdapter(BaseLLMAdapter):
             }
         }
 
-        data = self._post(self.config.base_url, payload, headers={})
+        url = f"{self.config.base_url}api/generate"
+        data = self._post(url, payload, headers={})
         return data.get("response", "").strip()

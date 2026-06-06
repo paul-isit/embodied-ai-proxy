@@ -137,6 +137,13 @@ def run_tests(proxy: LLMProxy, test_cases: list) -> None:
             result = proxy.generate(prompt, objects)
             wrapped = {"json": result["parsed"] if isinstance(result["parsed"], dict) else result["parsed"].model_dump()}
 
+
+            steps = wrapped["json"].get("steps", [])
+            actual_actions = [step.get("action") for step in steps]
+            expected_actions = test_case.get("expected", {}).get("must_contain_actions", [])
+            print(f"  Expected Actions : {expected_actions}")
+            print(f"  Actual Actions   : {actual_actions}")
+
             passed, failures = validate_response(test_case, wrapped)
 
             if passed:
