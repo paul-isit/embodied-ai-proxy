@@ -55,7 +55,13 @@ Button:hover {
     text-align: center;
     text-style: bold;
     padding-bottom: 1;
+    padding-top: 1;
     color: #ffffff;
+}
+
+.sidebar-status-text {
+    color: #00ffff;
+    margin-bottom: 1;
 }
 
 .suggested-btn {

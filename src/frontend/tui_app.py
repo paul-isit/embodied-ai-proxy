@@ -72,8 +72,15 @@ class EmbodiedProxyApp(App):
         self.processing_bar = self.query_one("#processing-bar", Static)
         self.sidebar = self.query_one("#sidebar", SuggestedMovements)
         self.title = "Embodied AI Proxy Workspace"
+        
+        self.proxy.on_telemetry_update = lambda msg: self.call_from_thread(self._handle_telemetry, msg)
+        
         # single authoritative bridge polling loop
         self.set_interval(5.0, self._check_bridge_status)
+
+    def _handle_telemetry(self, msg: dict) -> None:
+        if self.sidebar:
+            self.sidebar.update_telemetry(msg)
 
     # Guard TUI State
     def _ui_blocked(self) -> bool:

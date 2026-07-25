@@ -5,25 +5,36 @@ import websocket
 import threading
 import re
 from pathlib import Path
-from pydantic import BaseModel
-from typing import List, Dict, Optional, Any
+from datetime import datetime
+from pydantic import BaseModel, Field, RootModel
+from typing import List, Dict, Optional, Any, Literal, Union
 from src.backend.defaults import DEFAULT_SYSTEM_PROMPT
 from src.backend.llm_adapters import get_adapter
 from src.backend.llm_config import LLMConfig
 
 class StepSchema(BaseModel):
     step_id: int
-    action: str
-    description: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
+    action: Literal["home", "move_arm", "relative_move", "gripper"]
+    description: str
+    parameters: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
-class JSONSchema(BaseModel):
+class RecipeResponse(BaseModel):
+    status: Literal["success"] = "success"
     recipe_name: str
     steps: List[StepSchema]
 
+class ErrorResponse(BaseModel):
+    status: Literal["error"] = "error"
+    error_type: Literal["missing_object", "invalid_command", "safety_violation"]
+    message: str
+
+# Use Pydantic's RootModel to handle top-level Union parsing cleanly
+class UnifiedResponse(RootModel):
+    root: Union[RecipeResponse, ErrorResponse] = Field(..., discriminator="status")
+
 class SystemConfig(BaseModel):
     llm: LLMConfig
-    json_schema: JSONSchema
+    json_schema: Dict[str, Any]
     system_prompt: str
 
 class LLMProxy:
@@ -44,6 +55,8 @@ class LLMProxy:
         self.receive_thread = None
         self.on_connection_change = None
         self.adapter = get_adapter(self.llm_config)
+        self._log_lock = threading.Lock()
+        self.on_telemetry_update = None
 
     def connect(self):
         """Initializes a persistent WebSocket connection and dispatcher thread if one doesn't exist."""
@@ -53,6 +66,14 @@ class LLMProxy:
 
                 if self.on_connection_change:
                     self.on_connection_change(True)
+                    
+                # Subscribe to middleware telemetry
+                subscribe_msg = {
+                    "op": "subscribe",
+                    "topic": "/system/status",
+                    "type": "kinova_interfaces/msg/SystemSummary"
+                }
+                self.ws.send(json.dumps(subscribe_msg))
                     
                 self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
                 self.receive_thread.start()
@@ -69,6 +90,10 @@ class LLMProxy:
                         if req_id in self.pending_requests:
                             self.pending_requests[req_id]["response"] = response
                             self.pending_requests[req_id]["event"].set()
+                elif response.get("op") == "publish" and response.get("topic") == "/system/status":
+                    msg = response.get("msg", {})
+                    if self.on_telemetry_update:
+                        self.on_telemetry_update(msg)
             except websocket.WebSocketTimeoutException:
                 continue
                 # Expected timeout due to inactivity, just keep listening
@@ -216,7 +241,7 @@ class LLMProxy:
 
         return SystemConfig(
             llm=LLMConfig(**llm_config),
-            json_schema=JSONSchema(**json_schema_raw),
+            json_schema=json_schema_raw,
             system_prompt=system_prompt
         )
 
@@ -248,7 +273,7 @@ class LLMProxy:
         system_prompt template defined by the user.
         """
         # Convert schema to string
-        schema_str = json.dumps(self.schema_block.model_dump(), indent=2)
+        schema_str = json.dumps(self.schema_block, indent=2)
 
         # Convert objects list to a nice string format
         objects_str = ("\n".join([f"- {obj}" for obj in available_objects]) if available_objects else "No objects currently mapped.")
@@ -274,9 +299,67 @@ class LLMProxy:
         # Fallback in case the user deleted a required placeholder in the .md file     
             raise ValueError(f"system_prompt.md missing required placeholder: {e}")
 
+    def _log_interaction(self, prompt: str, response: str, error: Optional[str] = None) -> None:
+        """
+        Logs the query prompt, LLM response, and any error to the 'logs' directory
+        at the base of the project.
+        """
+        try:
+            # Determine base of the project
+            project_base = Path(__file__).resolve().parent.parent.parent
+            logs_dir = project_base / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            unique_id = uuid.uuid4().hex[:8]
+
+            # 1. Write an individual log file for this interaction
+            log_filename = f"interaction_{timestamp}_{unique_id}.log"
+            log_filepath = logs_dir / log_filename
+
+            log_content = []
+            log_content.append("=" * 80)
+            log_content.append(f"INTERACTION LOG - {datetime.now().isoformat()}")
+            log_content.append("=" * 80)
+            log_content.append("\n--- QUERY PROMPT ---")
+            log_content.append(prompt)
+            log_content.append("\n" + "-" * 80)
+
+            if error:
+                log_content.append("\n--- ERROR ---")
+                log_content.append(error)
+                log_content.append("\n" + "-" * 80)
+            else:
+                log_content.append("\n--- LLM RESPONSE ---")
+                log_content.append(response)
+                log_content.append("\n" + "-" * 80)
+
+            log_content.append("\n" + "=" * 80 + "\n")
+
+            log_text = "\n".join(log_content)
+
+            with open(log_filepath, "w", encoding="utf-8") as f:
+                f.write(log_text)
+
+            # 2. Append to a master log file 'logs/all_interactions.log'
+            master_log_path = logs_dir / "all_interactions.log"
+            with self._log_lock:
+                with open(master_log_path, "a", encoding="utf-8") as f:
+                    f.write(log_text)
+
+            logging.info(f"Successfully wrote interaction log to {log_filepath}")
+        except Exception as e:
+            logging.error(f"Failed to write interaction logs: {e}")
+
     def generate_llm_response(self, formatted_prompt: str) -> str:
         """Passes the formatted prompt to the configured LLM adapter."""
-        return self.adapter.generate(formatted_prompt)
+        try:
+            response = self.adapter.generate(formatted_prompt)
+            self._log_interaction(formatted_prompt, response)
+            return response
+        except Exception as e:
+            self._log_interaction(formatted_prompt, "", error=str(e))
+            raise
 
 
     def validate_and_extract_json(self, raw_llm_text: str) -> dict:
@@ -304,7 +387,7 @@ class LLMProxy:
                 if not match:
                     raise ValueError("No JSON object found in LLM response.")
                 parsed_json_dict = json.loads(match.group(0))
-            validated_data = JSONSchema(**parsed_json_dict).model_dump()
+            validated_data = UnifiedResponse.model_validate(parsed_json_dict).model_dump()
             return validated_data
         except Exception as e:
             raise ValueError(f"Failed to parse LLM output as JSON: {e}") from e
