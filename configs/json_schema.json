@@ -25,7 +25,13 @@
               },
               "action": {
                 "type": "string",
-                "enum": ["home", "move_arm", "relative_move", "gripper"]
+                "enum": [
+                  "home",
+                  "move_arm",
+                  "relative_move",
+                  "gripper",
+                  "pick_and_place"
+                ]
               },
               "description": {
                 "type": "string",
@@ -33,14 +39,23 @@
               },
               "parameters": {
                 "type": "object",
-                "description": "Arguments specific to the chosen action. If 'home': {}. If 'move_arm': {'target': string (must match an Available Object)}. If 'relative_move': {'vector': 'move_upwards' | 'move_downwards' | 'move_left' | 'move_right'}. If 'gripper': {'position': float between 0.0 and 1.0}."
+                "description": "Arguments specific to the chosen action. If 'home': {}. If 'move_arm': {'target': string (must match an Available Object)}. If 'relative_move': {'vector': 'move_upwards' | 'thrust_forward' | 'retreat'}. If 'gripper': {'position': float between 0.0 and 0.85}. If 'pick_and_place': {'object': string (must match an Available Manipulation Object), 'destination': string (must match an Available Destination), 'plan_only': boolean}. For pick_and_place, set plan_only to true to plan without moving the robot, or false to request execution."
               }
             },
-            "required": ["step_id", "action", "description", "parameters"]
+            "required": [
+              "step_id",
+              "action",
+              "description",
+              "parameters"
+            ]
           }
         }
       },
-      "required": ["status", "recipe_name", "steps"]
+      "required": [
+        "status",
+        "recipe_name",
+        "steps"
+      ]
     },
     {
       "type": "object",
@@ -52,14 +67,22 @@
         },
         "error_type": {
           "type": "string",
-          "enum": ["missing_object", "invalid_command", "safety_violation"]
+          "enum": [
+            "missing_object",
+            "invalid_command",
+            "safety_violation"
+          ]
         },
         "message": {
           "type": "string",
           "description": "Detailed natural language explanation of why the command failed execution."
         }
       },
-      "required": ["status", "error_type", "message"]
+      "required": [
+        "status",
+        "error_type",
+        "message"
+      ]
     }
   ]
 }

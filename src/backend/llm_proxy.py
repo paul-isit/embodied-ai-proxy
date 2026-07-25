@@ -14,9 +14,9 @@ from src.backend.llm_config import LLMConfig
 
 class StepSchema(BaseModel):
     step_id: int
-    action: Literal["home", "move_arm", "relative_move", "gripper"]
+    action: Literal["home", "move_arm", "relative_move", "gripper", "pick_and_place"]
     description: str
-    parameters: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
 
 class RecipeResponse(BaseModel):
     status: Literal["success"] = "success"

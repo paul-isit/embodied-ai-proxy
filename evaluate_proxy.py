@@ -74,11 +74,15 @@ def validate_response(test_case: dict, result: dict) -> tuple[bool, list[str]]:
 
     # Get all actions and targets from the steps
     all_actions = [step.get("action") for step in steps]
-    all_targets = [
-        step.get("parameters", {}).get("target")
-        for step in steps
-        if (step.get("parameters") or {}).get("target")  # ← handles None parameters
-    ]
+    all_targets = []
+    for step in steps:
+        params = step.get("parameters") or {}
+        if params.get("target"):
+            all_targets.append(params.get("target"))
+        if params.get("object"):
+            all_targets.append(params.get("object"))
+        if params.get("destination"):
+            all_targets.append(params.get("destination"))
 
     # Check first action
     if "first_action" in expected:
