@@ -33,7 +33,7 @@
               },
               "parameters": {
                 "type": "object",
-                "description": "Arguments specific to the chosen action. If 'home': {}. If 'move_arm': {'target': string (must match an Available Object)}. If 'relative_move': {'vector': 'move_upwards' | 'move_downwards' | 'move_left' | 'move_right'}. If 'gripper': {'position': float between 0.0 and 1.0}."
+                "description": "Arguments specific to the chosen action. If 'home': {}. If 'move_arm': {'target': string (must match an Available Object), 'approach_height': float (optional, use 0.10 for safe top-down vertical approach)}. If 'relative_move': {'vector': 'move_upwards' | 'move_downwards' | 'move_left' | 'move_right'}. If 'gripper': {'position': float between 0.0 and 1.0}."
               }
             },
             "required": ["step_id", "action", "description", "parameters"]
