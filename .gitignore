@@ -14,6 +14,11 @@ textual.log
 .idea/
 *.swp
 
+.agent
+.claude
+.gemini
+openspec
+
 build/
 install/
 log/
