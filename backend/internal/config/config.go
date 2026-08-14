@@ -1,20 +1,11 @@
 package config
 
 import (
+	"embodied-ai-proxy/backend/internal/config/constants"
 	"encoding/json"
 	"fmt"
 	"os"
-)
-
-const (
-	defaultServerPort        = "8080"
-	defaultLLMProvider       = "ollama"
-	defaultLLMModel          = "gemma3:1b"
-	defaultLLMBaseURL        = "http://localhost:11434/api/generate"
-	defaultLLMAPIKey         = ""
-	defaultLLMMaxTokens      = 1024
-	defaultLLMTemperature    = 0.1
-	defaultLLMTimeoutSeconds = 30
+	"path/filepath"
 )
 
 type LLMConfig struct {
@@ -28,38 +19,46 @@ type LLMConfig struct {
 }
 
 type AppConfig struct {
-	Port      string    `json:"port"`
+	Port      int       `json:"port"`
 	LLMConfig LLMConfig `json:"llm_config"`
 }
 
-func LoadConfig(configPath string) (*AppConfig, error) {
-	appConfig := &AppConfig{
-		Port: defaultServerPort,
+func getDefaultAppConfig() AppConfig {
+	appConfig := AppConfig{
+		Port: constants.DefaultServerPort,
 		LLMConfig: LLMConfig{
-			Provider:       defaultLLMProvider,
-			Model:          defaultLLMModel,
-			BaseURL:        defaultLLMBaseURL,
-			APIKey:         defaultLLMAPIKey,
-			MaxTokens:      defaultLLMMaxTokens,
-			Temperature:    defaultLLMTemperature,
-			TimeoutSeconds: defaultLLMTimeoutSeconds,
+			Provider:       constants.DefaultLLMProvider,
+			Model:          constants.DefaultLLMModel,
+			BaseURL:        constants.DefaultLLMBaseURL,
+			APIKey:         constants.DefaultLLMAPIKey,
+			MaxTokens:      constants.DefaultLLMMaxTokens,
+			Temperature:    constants.DefaultLLMTemperature,
+			TimeoutSeconds: constants.DefaultLLMTimeoutSeconds,
 		},
 	}
+	return appConfig
+}
 
-	file, err := os.Open(configPath)
+func Initialise(dir string) (*AppConfig, error) {
+	configFilePath := filepath.Join(dir, constants.ConfigDirName, constants.ConfigFileName)
+	info, err := os.Stat(configFilePath)
+	var appConfig AppConfig
+	if os.IsNotExist(err) || info.IsDir() {
+		defaultAppConfig := getDefaultAppConfig() // TODO: create the config file in the correct dir instead of just falling back to the default
+		// TODO add log line here
+		return &defaultAppConfig, nil
+	}
+
+	file, err := os.Open(configFilePath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// fallback to default values if config file is missing
-			return appConfig, nil
-		}
-		return nil, fmt.Errorf("failed to open config file %s: %w", configPath, err)
+		return nil, fmt.Errorf("failed to open config file %s: %w", configFilePath, err)
 	}
 
 	defer file.Close()
 	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(appConfig); err != nil {
-		return nil, fmt.Errorf("failed to decode config JSON file %s: %w", configPath, err)
+	if err := decoder.Decode(&appConfig); err != nil {
+		return nil, fmt.Errorf("failed to decode config JSON file %s: %w", configFilePath, err)
 	}
 
-	return appConfig, nil
+	return &appConfig, nil
 }

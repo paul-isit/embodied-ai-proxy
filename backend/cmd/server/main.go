@@ -1,46 +1,56 @@
 package main
 
 import (
-	"embodied-ai-proxy/backend/internal/config"
-	"encoding/json"
-	"fmt"
+	"context"
+	"embodied-ai-proxy/backend/internal/config/constants"
+	"embodied-ai-proxy/backend/internal/server"
+	"flag"
 	"log"
-	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
-type HealthResponse struct {
-	Status  string `json:"status"`
-	Service string `json:"service"`
-	Port    string `json:"port"`
-}
+func getAppArgs() server.ApplicationArgs {
+	var (
+		dataDir  string
+		httpPort int
+	)
+	flag.StringVar(&dataDir, "dataDir", "data", "The path to the data folder for the application")
+	flag.IntVar(&httpPort, "httpPort", constants.DefaultServerPort, "http server port")
+	flag.Parse()
 
-func healthHandler(config *config.AppConfig) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-
-		response := HealthResponse{
-			Status:  "Ok",
-			Service: "embodied-ai-proxy-backend",
-			Port:    config.Port,
-		}
-		json.NewEncoder(w).Encode(response)
+	log.Printf("dataDir %s", dataDir)
+	log.Printf("httpPort %d", httpPort)
+	return server.ApplicationArgs{
+		DataDir:  dataDir,
+		HTTPPort: httpPort,
 	}
 }
 
 func main() {
-	appConfig, err := config.LoadConfig("configs/config.json")
+	os.Exit(run())
+}
+
+func run() int {
+	ctx, stop := signal.NotifyContext(
+		context.TODO(),
+		syscall.SIGINT,  // signal interrupt, i.e. Ctrl+C
+		syscall.SIGTERM, //signal terminate, i.e. kill <pid>, etc.
+		syscall.SIGHUP,  // signal hangup, i.e. terminal window or ssh session closes
+		syscall.SIGQUIT, // signal quit
+	)
+	defer stop()
+
+	srv, err := server.New(getAppArgs())
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("Failed to start app server: %v", err)
+		return 1
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler(appConfig))
-
-	address := fmt.Sprintf(":%s", appConfig.Port)
-	log.Printf("Starting Embodied AI Proxy Go Backend on http://localhost%s...", address)
-
-	if err := http.ListenAndServe(address, mux); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	if err := srv.Start(ctx); err != nil {
+		log.Fatalf("App server stopped with error: %v", err)
+		return 1
 	}
+	return 0
 }
