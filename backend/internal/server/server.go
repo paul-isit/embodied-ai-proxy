@@ -6,6 +6,7 @@ import (
 	"embodied-ai-proxy/backend/internal/monitoring"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -40,20 +41,20 @@ func New(args ApplicationArgs) (*AppServer, error) {
 
 func (server *AppServer) initialize(mux *http.ServeMux) error {
 	dataDir := server.args.DataDir
-	//if err := verifyDataDir(dataDir); err != nil {
-	//	return err
-	//}
+	log.Printf("[Server] Initializing configuration with data directory: %s", dataDir)
 
 	appConfig, err := config.Initialise(dataDir)
 	if err != nil {
 		return fmt.Errorf("initialize config: %w", err)
 	}
 
+	log.Printf("[Server] Registering route: GET /health")
 	mux.HandleFunc("/health", monitoring.HealthHandler(appConfig, err))
 
 	return nil
 }
 
+// TODO implement this
 //func verifyDataDir(dir string) error {
 //	absDataDir, err := filepath.Abs(dir)
 //	if err != nil {
@@ -71,6 +72,7 @@ func (server *AppServer) initialize(mux *http.ServeMux) error {
 func (server *AppServer) Start(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
+		log.Printf("[Server] HTTP server listening on %s", server.httpServer.Addr)
 		if err := server.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -80,12 +82,19 @@ func (server *AppServer) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
+		log.Printf("[Server] Shutdown signal received")
 		return server.Shutdown()
 	}
 }
 
 func (server *AppServer) Shutdown() error {
+	log.Printf("[Server] Initiating graceful shutdown (timeout 10s)...")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return server.httpServer.Shutdown(ctx)
+
+	if err := server.httpServer.Shutdown(ctx); err != nil {
+		return err
+	}
+	log.Printf("[Server] Server stopped successfully")
+	return nil
 }

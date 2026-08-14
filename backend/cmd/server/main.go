@@ -20,8 +20,7 @@ func getAppArgs() server.ApplicationArgs {
 	flag.IntVar(&httpPort, "httpPort", constants.DefaultServerPort, "http server port")
 	flag.Parse()
 
-	log.Printf("dataDir %s", dataDir)
-	log.Printf("httpPort %d", httpPort)
+	log.Printf("[Main] Parsed flags: dataDir=%s, httpPort=%d", dataDir, httpPort)
 	return server.ApplicationArgs{
 		DataDir:  dataDir,
 		HTTPPort: httpPort,
