@@ -1,4 +1,4 @@
-module embodied-ai-proxy/backend
+module embodied-ai-proxy/llm-proxy
 
 go 1.26.5
 

@@ -1,12 +1,11 @@
-package monitoring
+package health
 
 import (
-	"embodied-ai-proxy/backend/internal/config"
 	"encoding/json"
 	"net/http"
 )
 
-type HealthResponse struct {
+type Response struct {
 	Healthy bool   `json:"healthy"`
 	Status  string `json:"status"`
 	Service string `json:"service"`
@@ -14,25 +13,27 @@ type HealthResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func HealthHandler(config *config.AppConfig, configErr error) http.HandlerFunc {
+// Handler returns a /health HTTP handler reporting the given service's
+// startup config state. A non-nil configErr marks the service unhealthy.
+func Handler(service string, port int, configErr error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if configErr != nil || config == nil {
+		if configErr != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(HealthResponse{
+			json.NewEncoder(w).Encode(Response{
 				Healthy: false,
 				Status:  "unhealthy",
-				Service: "embodied-ai-proxy-backend",
+				Service: service,
 				Error:   configErr.Error(),
 			})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(HealthResponse{
+		json.NewEncoder(w).Encode(Response{
 			Healthy: true,
 			Status:  "Ok",
-			Service: "embodied-ai-proxy-backend",
-			Port:    config.Port,
+			Service: service,
+			Port:    port,
 		})
 	}
 }

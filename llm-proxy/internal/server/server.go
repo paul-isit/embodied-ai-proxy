@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"embodied-ai-proxy/backend/internal/config"
+	"embodied-ai-proxy/llm-proxy/internal/config"
 	"embodied-ai-proxy/shared/health"
 	"embodied-ai-proxy/shared/httpserver"
 	"fmt"
@@ -35,34 +35,19 @@ func New(args ApplicationArgs) (*AppServer, error) {
 
 func (server *AppServer) initialize() error {
 	dataDir := server.args.DataDir
-	log.Printf("[Server] Initializing configuration with data directory: %s", dataDir)
+	log.Printf("[LLMProxy] Initializing configuration with data directory: %s", dataDir)
 
 	appConfig, err := config.Initialise(dataDir)
 	if err != nil {
 		return fmt.Errorf("initialize config: %w", err)
 	}
 
-	log.Printf("[Server] Registering route: GET /health")
-	server.mux.HandleFunc("/health", health.Handler("embodied-ai-proxy-backend", appConfig.Port, err))
+	log.Printf("[LLMProxy] Registering route: GET /health")
+	server.mux.HandleFunc("/health", health.Handler("embodied-ai-proxy-llm-proxy", appConfig.Port, err))
 
 	return nil
 }
 
-// TODO implement this
-//func verifyDataDir(dir string) error {
-//	absDataDir, err := filepath.Abs(dir)
-//	if err != nil {
-//		return fmt.Errorf("get absolute path: %w", err)
-//	}
-//
-//	executablePath, err := os.Executable()
-//	if err != nil {
-//		return fmt.Errorf("get path to executable file: %w", err)
-//	}
-//
-//	return nil
-//}
-
 func (server *AppServer) Start(ctx context.Context) error {
-	return httpserver.Run(ctx, "[Server]", fmt.Sprintf(":%d", server.args.HTTPPort), server.mux)
+	return httpserver.Run(ctx, "[LLMProxy]", fmt.Sprintf(":%d", server.args.HTTPPort), server.mux)
 }

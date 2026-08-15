@@ -1,5 +1,5 @@
 {
-  "port": "8080",
+  "port": 8081,
   "llm_config": {
     "provider": "ollama",
     "model": "gemma3:1b",
