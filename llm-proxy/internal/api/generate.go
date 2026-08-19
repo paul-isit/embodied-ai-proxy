@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 )
 
 // maxRequestBodyBytes caps how much of an incoming /generate request body
@@ -54,12 +55,16 @@ func GenerateHandler(rt *router.Router) http.HandlerFunc {
 			return
 		}
 
+		log.Printf("[LLMProxy] generate: request received (prompt=%d bytes, system_instruction=%d bytes)", len(payload.Prompt), len(payload.SystemInstruction))
+		start := time.Now()
+
 		resp, err := rt.Generate(r.Context(), provider.Request{
 			Prompt:            payload.Prompt,
 			SystemInstruction: payload.SystemInstruction,
 			MaxTokens:         payload.MaxTokens,
 			Temperature:       payload.Temperature,
 		})
+		elapsed := time.Since(start)
 		if err != nil {
 			// The full error (which may include a raw, potentially verbose
 			// or vendor-specific upstream response body via
@@ -67,7 +72,7 @@ func GenerateHandler(rt *router.Router) http.HandlerFunc {
 			// never returned to the caller as-is - it's replaced with a
 			// short, generic message so nothing upstream-specific leaks
 			// into the backend's logs/TUI display.
-			log.Printf("[LLMProxy] generate failed: %v", err)
+			log.Printf("[LLMProxy] generate: failed after %s: %v", elapsed, err)
 
 			status := http.StatusBadGateway
 			message := "upstream provider request failed"
@@ -85,6 +90,7 @@ func GenerateHandler(rt *router.Router) http.HandlerFunc {
 			return
 		}
 
+		log.Printf("[LLMProxy] generate: succeeded in %s (response=%d bytes, finish_reason=%q)", elapsed, len(resp.Text), resp.FinishReason)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(generateResponsePayload{
 			Text:         resp.Text,

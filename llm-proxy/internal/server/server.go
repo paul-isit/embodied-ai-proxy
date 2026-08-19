@@ -47,7 +47,9 @@ func (server *AppServer) initialize() error {
 	if err != nil {
 		return fmt.Errorf("initialize provider router: %w", err)
 	}
-	log.Printf("[LLMProxy] Registering route: POST /generate (provider=%s model=%s)", appConfig.Proxy.LLMConfig.Provider, appConfig.Proxy.LLMConfig.Model)
+	llm := appConfig.Proxy.LLMConfig
+	log.Printf("[LLMProxy] Registering route: POST /generate (provider=%s model=%s base_url=%s max_tokens=%d temperature=%v timeout=%ds)",
+		llm.Provider, llm.Model, llm.BaseURL, llm.MaxTokens, llm.Temperature, llm.TimeoutSeconds)
 	server.mux.HandleFunc("/generate", api.GenerateHandler(rt))
 
 	return nil

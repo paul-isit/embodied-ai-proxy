@@ -10,6 +10,7 @@ import (
 	sharedconfig "embodied-ai-proxy/shared/config"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -73,15 +74,21 @@ func (r *Router) Generate(ctx context.Context, req provider.Request) (provider.R
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		resp, err := r.provider.Generate(ctx, req)
 		if err == nil {
+			if attempt > 1 {
+				log.Printf("[LLMProxy] router: attempt %d/%d succeeded after %d earlier failure(s)", attempt, maxAttempts, attempt-1)
+			}
 			return resp, nil
 		}
 		lastErr = err
 		if attempt == maxAttempts || !retryable(err) {
+			log.Printf("[LLMProxy] router: attempt %d/%d failed, giving up: %v", attempt, maxAttempts, err)
 			break
 		}
+		log.Printf("[LLMProxy] router: attempt %d/%d failed, retrying in %s: %v", attempt, maxAttempts, retryBackoff, err)
 		select {
 		case <-time.After(retryBackoff):
 		case <-ctx.Done():
+			log.Printf("[LLMProxy] router: giving up, context done while waiting to retry: %v", ctx.Err())
 			return provider.Response{}, err
 		}
 	}
