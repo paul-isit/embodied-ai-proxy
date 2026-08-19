@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"embodied-ai-proxy/backend/internal/config/constants"
 	"embodied-ai-proxy/backend/internal/server"
+	sharedconfig "embodied-ai-proxy/shared/config"
+	"embodied-ai-proxy/shared/logging"
 	"flag"
 	"log"
 	"os"
@@ -16,8 +17,8 @@ func getAppArgs() server.ApplicationArgs {
 		dataDir  string
 		httpPort int
 	)
-	flag.StringVar(&dataDir, "dataDir", "data", "The path to the data folder for the application")
-	flag.IntVar(&httpPort, "httpPort", constants.DefaultServerPort, "http server port")
+	flag.StringVar(&dataDir, "dataDir", "data", "The path to the data folder for the application (config.json, json_schema.json, and system_prompt.md all live under <dataDir>/config)")
+	flag.IntVar(&httpPort, "httpPort", sharedconfig.DefaultServerPort, "http server port")
 	flag.Parse()
 
 	log.Printf("[Main] Parsed flags: dataDir=%s, httpPort=%d", dataDir, httpPort)
@@ -41,7 +42,14 @@ func run() int {
 	)
 	defer stop()
 
-	srv, err := server.New(getAppArgs())
+	args := getAppArgs()
+	if closer, err := logging.Setup(args.DataDir, "server"); err != nil {
+		log.Printf("[Main] Failed to set up file logging: %v (continuing with stdout only)", err)
+	} else {
+		defer closer.Close()
+	}
+
+	srv, err := server.New(args)
 	if err != nil {
 		log.Fatalf("Failed to start app server: %v", err)
 		return 1

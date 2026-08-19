@@ -1,4 +1,0 @@
-{
-  "port": 8080,
-  "proxy_url": "http://localhost:8081"
-}

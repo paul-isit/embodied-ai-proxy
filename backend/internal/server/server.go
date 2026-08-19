@@ -2,12 +2,26 @@ package server
 
 import (
 	"context"
-	"embodied-ai-proxy/backend/internal/config"
-	"embodied-ai-proxy/shared/health"
+	"embodied-ai-proxy/backend/internal/api"
+	"embodied-ai-proxy/backend/internal/prompt"
+	"embodied-ai-proxy/backend/internal/validator"
+	"embodied-ai-proxy/backend/internal/websocket"
+	sharedconfig "embodied-ai-proxy/shared/config"
 	"embodied-ai-proxy/shared/httpserver"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+)
+
+// jsonSchemaFileName and systemPromptFileName are the two backend-specific
+// files that live alongside config.json under <dataDir>/config - naming them
+// here keeps the actual filename in one place instead of as an inline
+// string literal wherever a path gets built.
+const (
+	jsonSchemaFileName   = "json_schema.json"
+	systemPromptFileName = "system_prompt.md"
 )
 
 type ApplicationArgs struct {
@@ -37,13 +51,45 @@ func (server *AppServer) initialize() error {
 	dataDir := server.args.DataDir
 	log.Printf("[Server] Initializing configuration with data directory: %s", dataDir)
 
-	appConfig, err := config.Initialise(dataDir)
+	appConfig, err := sharedconfig.Initialise(dataDir)
 	if err != nil {
 		return fmt.Errorf("initialize config: %w", err)
 	}
 
-	log.Printf("[Server] Registering route: GET /health")
-	server.mux.HandleFunc("/health", health.Handler("embodied-ai-proxy-backend", appConfig.Port, err))
+	configDir := filepath.Join(server.args.DataDir, sharedconfig.ConfigDirName)
+
+	schemaPath := filepath.Join(configDir, jsonSchemaFileName)
+	schemaRaw, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("read json schema %s: %w", schemaPath, err)
+	}
+
+	v, err := validator.New(schemaPath, schemaRaw)
+	if err != nil {
+		return fmt.Errorf("compile json schema %s: %w", schemaPath, err)
+	}
+
+	systemPrompt := prompt.DefaultSystemPrompt
+	systemPromptPath := filepath.Join(configDir, systemPromptFileName)
+	if raw, err := os.ReadFile(systemPromptPath); err != nil {
+		log.Printf("[Server] %s not found at %s, falling back to default system prompt", systemPromptFileName, systemPromptPath)
+	} else {
+		systemPrompt = string(raw)
+	}
+
+	hub := websocket.NewHub()
+	pipeline := prompt.New(hub, v, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
+	hub.SetPromptHandler(pipeline)
+	hub.SetStatusHandler(pipeline)
+
+	log.Printf("[Server] Registering route: GET /ws/client")
+	server.mux.HandleFunc("/ws/client", hub.ServeClient)
+	log.Printf("[Server] Registering route: GET /ws/bridge")
+	server.mux.HandleFunc("/ws/bridge", hub.ServeBridge)
+	log.Printf("[Server] Registering route: POST /api/prompt")
+	server.mux.HandleFunc("/api/prompt", api.PromptHandler(pipeline))
+	log.Printf("[Server] Registering route: GET /api/info")
+	server.mux.HandleFunc("/api/info", api.InfoHandler(appConfig, hub, pipeline))
 
 	return nil
 }
