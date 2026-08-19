@@ -2,8 +2,9 @@ package server
 
 import (
 	"context"
-	"embodied-ai-proxy/llm-proxy/internal/config"
-	"embodied-ai-proxy/shared/health"
+	"embodied-ai-proxy/llm-proxy/internal/api"
+	"embodied-ai-proxy/llm-proxy/internal/router"
+	sharedconfig "embodied-ai-proxy/shared/config"
 	"embodied-ai-proxy/shared/httpserver"
 	"fmt"
 	"log"
@@ -37,13 +38,17 @@ func (server *AppServer) initialize() error {
 	dataDir := server.args.DataDir
 	log.Printf("[LLMProxy] Initializing configuration with data directory: %s", dataDir)
 
-	appConfig, err := config.Initialise(dataDir)
+	appConfig, err := sharedconfig.Initialise(dataDir)
 	if err != nil {
 		return fmt.Errorf("initialize config: %w", err)
 	}
 
-	log.Printf("[LLMProxy] Registering route: GET /health")
-	server.mux.HandleFunc("/health", health.Handler("embodied-ai-proxy-llm-proxy", appConfig.Port, err))
+	rt, err := router.New(appConfig.Proxy.LLMConfig, http.DefaultClient)
+	if err != nil {
+		return fmt.Errorf("initialize provider router: %w", err)
+	}
+	log.Printf("[LLMProxy] Registering route: POST /generate (provider=%s model=%s)", appConfig.Proxy.LLMConfig.Provider, appConfig.Proxy.LLMConfig.Model)
+	server.mux.HandleFunc("/generate", api.GenerateHandler(rt))
 
 	return nil
 }
