@@ -4,4 +4,5 @@ use (
 	./backend
 	./llm-proxy
 	./shared
+	./tui
 )
