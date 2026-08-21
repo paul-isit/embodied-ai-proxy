@@ -6,6 +6,7 @@ require (
 	embodied-ai-proxy/shared v0.0.0-00010101000000-000000000000
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/gorilla/websocket v1.5.3
 )
 
 require (
