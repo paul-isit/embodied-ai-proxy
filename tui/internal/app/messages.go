@@ -26,12 +26,25 @@ type StatusUpdateMsg struct {
 	Raw             json.RawMessage
 }
 
-// ActionRecipeMsg represents a validated "action_recipe" envelope
+// ActionStep is a single step of a validated action recipe, matching
+// data/config/json_schema.json's "steps" item shape.
+type ActionStep struct {
+	StepID      int            `json:"step_id"`
+	Action      string         `json:"action"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// ActionRecipeMsg represents a validated "action_recipe" envelope, which per
+// data/config/json_schema.json is either a success document (status,
+// recipe_name, steps) or an error document (status, error_type, message).
 type ActionRecipeMsg struct {
-	Status    string            `json:"status"`
-	Summary   string            `json:"summary,omitempty"`
-	Steps     []ActionRecipeMsg `json:"steps,omitempty"`
-	RawOutput string            `json:"raw_output,omitempty"`
+	Status     string       `json:"status"`
+	RecipeName string       `json:"recipe_name,omitempty"`
+	Steps      []ActionStep `json:"steps,omitempty"`
+	ErrorType  string       `json:"error_type,omitempty"`
+	Message    string       `json:"message,omitempty"`
+	RawOutput  string       `json:"raw_output,omitempty"`
 }
 
 // LogEventMsg represents a "log_event" envelope

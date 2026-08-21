@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,7 +19,8 @@ func TestWSClientConnectAndReceive(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			t.Fatalf("upgrade failed: %v", err)
+			t.Errorf("upgrade failed: %v", err)
+			return
 		}
 		defer conn.Close()
 
@@ -43,11 +45,17 @@ func TestWSClientConnectAndReceive(t *testing.T) {
 	client := NewWSClient(server.URL)
 	// Point directly to test server wsURL
 	client.wsURL = toWebSocketURL(server.URL, "")
-
-	if err := client.Connect(); err != nil {
-		t.Fatalf("client.Connect failed: %v", err)
-	}
+	client.Start()
 	defer client.Close()
+
+	select {
+	case msg := <-client.MsgChan():
+		if _, ok := msg.(Connected); !ok {
+			t.Fatalf("expected Connected, got %T", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Connected")
+	}
 
 	select {
 	case msg := <-client.MsgChan():
@@ -64,5 +72,66 @@ func TestWSClientConnectAndReceive(t *testing.T) {
 
 	if err := client.SendPrompt("pick up red block"); err != nil {
 		t.Fatalf("SendPrompt failed: %v", err)
+	}
+}
+
+// TestWSClientReconnectsAfterRejection simulates a backend that refuses the
+// first connection attempt (mirroring the hub's 409 Conflict when a stale
+// connection hasn't been cleaned up yet) and accepts the next one, asserting
+// the client reports Disconnected then retries into a successful Connected.
+func TestWSClientReconnectsAfterRejection(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&attempts, 1) == 1 {
+			http.Error(w, "a client is already connected", http.StatusConflict)
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+		time.Sleep(500 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	client := NewWSClient(server.URL)
+	client.wsURL = toWebSocketURL(server.URL, "")
+	client.Start()
+	defer client.Close()
+
+	select {
+	case msg := <-client.MsgChan():
+		if _, ok := msg.(Disconnected); !ok {
+			t.Fatalf("expected Disconnected on rejected first attempt, got %T", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first Disconnected")
+	}
+
+	select {
+	case msg := <-client.MsgChan():
+		if _, ok := msg.(Connected); !ok {
+			t.Fatalf("expected Connected after backoff retry, got %T", msg)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for reconnect")
+	}
+
+	if got := atomic.LoadInt32(&attempts); got < 2 {
+		t.Fatalf("expected at least 2 connection attempts, got %d", got)
+	}
+}
+
+func TestNextBackoff(t *testing.T) {
+	if got := nextBackoff(reconnectBaseDelay); got != 2*reconnectBaseDelay {
+		t.Errorf("expected backoff to double, got %s", got)
+	}
+	if got := nextBackoff(reconnectMaxDelay); got != reconnectMaxDelay {
+		t.Errorf("expected backoff to stay capped at %s, got %s", reconnectMaxDelay, got)
+	}
+	if got := nextBackoff(reconnectMaxDelay / 2); got > reconnectMaxDelay {
+		t.Errorf("expected backoff never to exceed cap, got %s", got)
 	}
 }

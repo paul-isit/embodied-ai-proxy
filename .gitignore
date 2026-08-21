@@ -19,6 +19,7 @@ textual.log
 .gemini
 openspec
 
+bin/
 build/
 install/
 log/
