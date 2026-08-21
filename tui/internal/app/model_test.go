@@ -1,6 +1,7 @@
 package app
 
 import (
+	"embodied-ai-proxy/tui/internal/client"
 	"strings"
 	"testing"
 	"time"
@@ -48,8 +49,8 @@ func TestSubmitPromptIgnoresEmptyInput(t *testing.T) {
 	updated, cmd := m.submitPrompt()
 
 	nm := updated.(Model)
-	if len(nm.output) != 0 {
-		t.Fatalf("expected no output for empty input, got %v", nm.output)
+	if len(nm.entries) != 0 {
+		t.Fatalf("expected no output for empty input, got %v", nm.entries)
 	}
 	if cmd != nil {
 		t.Fatalf("expected no command for empty input")
@@ -66,8 +67,8 @@ func TestSubmitPromptSurfacesSendErrorWhenDisconnected(t *testing.T) {
 	if nm.inFlight {
 		t.Fatalf("expected inFlight to remain false when send fails")
 	}
-	if len(nm.output) != 1 || !strings.Contains(nm.output[0], "websocket is not connected") {
-		t.Fatalf("expected a send-error line in output, got %v", nm.output)
+	if len(nm.entries) != 1 || !strings.Contains(nm.entries[0], "websocket is not connected") {
+		t.Fatalf("expected a send-error line in output, got %v", nm.entries)
 	}
 }
 
@@ -79,10 +80,50 @@ func TestSubmitPromptIgnoresWhileInFlight(t *testing.T) {
 	updated, cmd := m.submitPrompt()
 	nm := updated.(Model)
 
-	if len(nm.output) != 0 {
-		t.Fatalf("expected no output while a command is already in flight, got %v", nm.output)
+	if len(nm.entries) != 0 {
+		t.Fatalf("expected no output while a command is already in flight, got %v", nm.entries)
 	}
 	if cmd != nil {
 		t.Fatalf("expected no command while a command is already in flight")
+	}
+}
+
+func TestStatusUpdateEnvelopeUpdatesHeaderNotFeed(t *testing.T) {
+	m := NewModel("http://localhost:8080")
+	m.inFlight = true
+
+	updated, _ := m.Update(client.Envelope{
+		Type:    client.TypeStatusUpdate,
+		Payload: []byte(`{"bridge_connected": true}`),
+	})
+	nm := updated.(Model)
+
+	if len(nm.entries) != 0 {
+		t.Fatalf("expected status_update to stay out of the feed, got %v", nm.entries)
+	}
+	if nm.bridgeConnected == nil || !*nm.bridgeConnected {
+		t.Fatalf("expected bridgeConnected to be true, got %v", nm.bridgeConnected)
+	}
+	if !nm.inFlight {
+		t.Fatalf("a status_update push should not clear an in-flight prompt")
+	}
+}
+
+func TestActionRecipeEnvelopeAppendsToFeedAndClearsInFlight(t *testing.T) {
+	m := NewModel("http://localhost:8080")
+	m.inFlight = true
+	m.viewport.Width = 80
+
+	updated, _ := m.Update(client.Envelope{
+		Type:    client.TypeActionRecipe,
+		Payload: []byte(`{"status": "success"}`),
+	})
+	nm := updated.(Model)
+
+	if nm.inFlight {
+		t.Fatalf("expected inFlight to clear once a response arrives")
+	}
+	if len(nm.entries) != 1 || !strings.Contains(nm.entries[0], "action_recipe") {
+		t.Fatalf("expected the action_recipe envelope in the feed, got %v", nm.entries)
 	}
 }

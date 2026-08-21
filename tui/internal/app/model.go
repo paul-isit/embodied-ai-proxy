@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -15,13 +16,19 @@ import (
 var (
 	statusStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7AA2F7"))
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
+	mutedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#565F89"))
 	promptLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#9ECE6A")).Render("> ")
 )
 
+// fixedLines is the number of rows the layout always reserves outside the
+// scrollable viewport: top+bottom padding, the header, the status/in-flight
+// line, the input line, and the footer hint - used to size the viewport
+// against the real terminal height.
+const fixedLines = 6
+
 // Model is the MVP root Bubble Tea model: it connects to the backend over
 // WebSocket, accepts a single-line natural language prompt, and prints the
-// raw backend response. The multi-panel dashboard and dual-mode keybindings
-// are deferred to a later phase (see design.md Decision 5).
+// raw backend response in a scrollable viewport.
 type Model struct {
 	AppServerURL string
 	Width        int
@@ -30,9 +37,12 @@ type Model struct {
 
 	ws       *client.WSClient
 	input    textinput.Model
-	output   []string
-	connMsg  string
-	inFlight bool
+	viewport viewport.Model
+
+	entries         []string
+	connMsg         string
+	bridgeConnected *bool
+	inFlight        bool
 }
 
 // NewModel creates a new initial Model instance
@@ -46,6 +56,7 @@ func NewModel(appServerURL string) Model {
 		AppServerURL: appServerURL,
 		ws:           client.NewWSClient(appServerURL),
 		input:        ti,
+		viewport:     viewport.New(0, 0),
 		connMsg:      "connecting...",
 	}
 }
@@ -73,15 +84,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.Ready = true
+		m.viewport.Width = contentWidth(m.Width)
+		m.viewport.Height = max(3, m.Height-fixedLines)
+		m.refreshViewport()
 		return m, nil
 
+	case tea.MouseMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
+		switch msg.Type {
+		case tea.KeyCtrlC:
 			m.ws.Close()
 			return m, tea.Quit
-		case "enter":
+		case tea.KeyEnter:
 			return m.submitPrompt()
+		case tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 		}
 
 	case client.Connected:
@@ -97,8 +120,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForWSMsg(m.ws.MsgChan())
 
 	case client.Envelope:
+		if msg.Type == client.TypeStatusUpdate {
+			if bc := decodeBridgeConnected(msg.Payload); bc != nil {
+				m.bridgeConnected = bc
+			}
+			return m, waitForWSMsg(m.ws.MsgChan())
+		}
 		m.inFlight = false
-		m.output = append(m.output, formatEnvelope(msg))
+		m.entries = append(m.entries, formatEnvelope(msg))
+		m.refreshViewport()
 		return m, waitForWSMsg(m.ws.MsgChan())
 	}
 
@@ -116,14 +146,44 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	}
 
 	if err := m.ws.SendPrompt(text); err != nil {
-		m.output = append(m.output, errorStyle.Render("error: "+err.Error()))
+		m.entries = append(m.entries, errorStyle.Render("error: "+err.Error()))
+		m.refreshViewport()
 		return m, nil
 	}
 
-	m.output = append(m.output, promptLabel+text)
+	m.entries = append(m.entries, promptLabel+text)
+	m.refreshViewport()
 	m.input.SetValue("")
 	m.inFlight = true
 	return m, nil
+}
+
+// refreshViewport re-wraps every entry to the viewport's current width and
+// scrolls to the bottom, so new messages are always visible immediately
+// while pgup/pgdn (or the mouse wheel) can still scroll back through history.
+func (m *Model) refreshViewport() {
+	width := m.viewport.Width
+	if width <= 0 {
+		return
+	}
+	wrapped := make([]string, len(m.entries))
+	for i, e := range m.entries {
+		wrapped[i] = lipgloss.NewStyle().Width(width).Render(e)
+	}
+	m.viewport.SetContent(strings.Join(wrapped, "\n\n"))
+	m.viewport.GotoBottom()
+}
+
+// decodeBridgeConnected extracts the optional bridge_connected field from a
+// status_update payload, if present.
+func decodeBridgeConnected(payload json.RawMessage) *bool {
+	var v struct {
+		BridgeConnected *bool `json:"bridge_connected"`
+	}
+	if err := json.Unmarshal(payload, &v); err != nil {
+		return nil
+	}
+	return v.BridgeConnected
 }
 
 // formatEnvelope renders a raw backend envelope as plain text
@@ -135,6 +195,21 @@ func formatEnvelope(env client.Envelope) string {
 	return fmt.Sprintf("[%s]\n%s", env.Type, pretty.String())
 }
 
+func contentWidth(termWidth int) int {
+	return max(1, termWidth-4)
+}
+
+func bridgeStatusText(connected *bool) string {
+	switch {
+	case connected == nil:
+		return "bridge: unknown"
+	case *connected:
+		return "bridge: connected"
+	default:
+		return "bridge: disconnected"
+	}
+}
+
 // View renders the TUI
 func (m Model) View() string {
 	if !m.Ready {
@@ -142,18 +217,17 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(statusStyle.Render("Backend: "+m.AppServerURL+" ["+m.connMsg+"]") + "\n\n")
-
-	for _, line := range m.output {
-		b.WriteString(line + "\n\n")
-	}
+	b.WriteString(statusStyle.Render(fmt.Sprintf("Backend: %s [%s] | %s", m.AppServerURL, m.connMsg, bridgeStatusText(m.bridgeConnected))) + "\n")
+	b.WriteString(m.viewport.View() + "\n")
 
 	if m.inFlight {
 		b.WriteString(statusStyle.Render("waiting for response...") + "\n")
+	} else {
+		b.WriteString("\n")
 	}
 
 	b.WriteString(m.input.View() + "\n")
-	b.WriteString("(ctrl+c to quit)")
+	b.WriteString(mutedStyle.Render("(enter to submit • pgup/pgdn or mouse wheel to scroll • ctrl+c to quit)"))
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
