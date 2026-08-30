@@ -5,11 +5,13 @@ import (
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -68,13 +70,39 @@ func fakeLLMProxy(t *testing.T, responseText string) *httptest.Server {
 	}))
 }
 
+type mockROSBridge struct {
+	mu        sync.Mutex
+	connected bool
+	objects   []string
+	executed  [][]byte
+}
+
+func (m *mockROSBridge) IsConnected() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.connected
+}
+
+func (m *mockROSBridge) GetAvailableObjects() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.objects
+}
+
+func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.executed = append(m.executed, recipeJSON)
+	return nil
+}
+
 const testSystemPrompt = "Schema:\n{schema_template}\n\nObjects:\n{available_objects}\n\nCommand: {user_command}"
 
 func TestPipeline_Run_ValidRecipe(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
 	defer llmProxy.Close()
 
-	p := New(websocket.NewHub(), testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
 	result := p.Run(context.Background(), "go home", []string{"red_cube"})
 
 	if result.Error != "" {
@@ -89,7 +117,7 @@ func TestPipeline_Run_InvalidRecipeFailsSchemaValidation(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","steps":[]}`) // missing recipe_name
 	defer llmProxy.Close()
 
-	p := New(websocket.NewHub(), testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
 	result := p.Run(context.Background(), "go home", nil)
 
 	if result.Error == "" {
@@ -101,7 +129,7 @@ func TestPipeline_Run_StripsMarkdownFences(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, "```json\n"+`{"status":"error","error_type":"missing_object","message":"no cube"}`+"\n```")
 	defer llmProxy.Close()
 
-	p := New(websocket.NewHub(), testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
 	result := p.Run(context.Background(), "pick up cube", nil)
 
 	if result.Error != "" {
@@ -109,47 +137,82 @@ func TestPipeline_Run_StripsMarkdownFences(t *testing.T) {
 	}
 }
 
-func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndDispatchesToBridge(t *testing.T) {
+func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndExecutesOnBridge(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
 	defer llmProxy.Close()
 
 	hub := websocket.NewHub()
-	p := New(hub, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	bridge := &mockROSBridge{
+		connected: true,
+		objects:   []string{"red_cube"},
+	}
+	p := New(hub, bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/client", hub.ServeClient)
-	mux.HandleFunc("/ws/bridge", hub.ServeBridge)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	clientWS := dialTestWS(t, server.URL, "/ws/client")
-	bridgeWS := dialTestWS(t, server.URL, "/ws/bridge")
 	time.Sleep(50 * time.Millisecond)
 
 	p.HandlePrompt(context.Background(), "go home")
-
-	bridgeMsg := readUntil(t, bridgeWS, websocket.TypeActionRecipe, 2*time.Second)
-	if bridgeMsg.Type != websocket.TypeActionRecipe {
-		t.Errorf("bridge got type %q, want %q", bridgeMsg.Type, websocket.TypeActionRecipe)
-	}
 
 	clientMsg := readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
 	if clientMsg.Type != websocket.TypeActionRecipe {
 		t.Errorf("client got type %q, want %q", clientMsg.Type, websocket.TypeActionRecipe)
 	}
-}
 
-func TestPipeline_HandleBridgeStatus_CachesObjectList(t *testing.T) {
-	p := New(websocket.NewHub(), testValidator(t), "http://unused", testSystemPrompt, []byte(`{}`))
-
-	payload, _ := json.Marshal(map[string]any{"object_list": []string{"red_cube", "blue_cube"}})
-	p.HandleBridgeStatus(websocket.Envelope{Type: websocket.TypeStatusUpdate, Payload: payload})
-
-	got := p.availableObjects()
-	if len(got) != 2 || got[0] != "red_cube" || got[1] != "blue_cube" {
-		t.Errorf("availableObjects() = %v", got)
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if len(bridge.executed) != 1 {
+		t.Fatalf("bridge executed %d recipes, want 1", len(bridge.executed))
 	}
 }
+
+func TestPipeline_HandlePrompt_ExecutionFailure_BroadcastsErrorWithoutActionRecipe(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
+	defer llmProxy.Close()
+
+	hub := websocket.NewHub()
+	failBridge := &failingROSBridge{connected: true}
+	p := New(hub, failBridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/client", hub.ServeClient)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	clientWS := dialTestWS(t, server.URL, "/ws/client")
+	time.Sleep(50 * time.Millisecond)
+
+	p.HandlePrompt(context.Background(), "go home")
+
+	msg := readUntil(t, clientWS, websocket.TypeLogEvent, 2*time.Second)
+	if !strings.Contains(string(msg.Payload), "robot recipe execution failed") {
+		t.Errorf("expected robot recipe execution failed log, got: %s", string(msg.Payload))
+	}
+
+	// Assert that no TypeActionRecipe is sent after execution failure
+	clientWS.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	var trailing websocket.Envelope
+	for {
+		if err := clientWS.ReadJSON(&trailing); err != nil {
+			break // Read timed out as expected with no further messages
+		}
+		if trailing.Type == websocket.TypeActionRecipe {
+			t.Fatalf("unexpected %s envelope received after execution failure: %s", websocket.TypeActionRecipe, string(trailing.Payload))
+		}
+	}
+}
+
+type failingROSBridge struct {
+	connected bool
+}
+
+func (f *failingROSBridge) IsConnected() bool                                     { return f.connected }
+func (f *failingROSBridge) GetAvailableObjects() []string                         { return nil }
+func (f *failingROSBridge) ExecuteRecipe(ctx context.Context, recipe []byte) error { return errors.New("gripper jammed") }
 
 func TestExtractJSON_RecoversFromConversationalFiller(t *testing.T) {
 	raw := "Sure! Here's the recipe you asked for:\n" +
@@ -178,7 +241,8 @@ func TestPipeline_HandlePrompt_NoBridgeConnected_BroadcastsErrorWithoutCallingLL
 	defer llmProxy.Close()
 
 	hub := websocket.NewHub()
-	p := New(hub, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	bridge := &mockROSBridge{connected: false}
+	p := New(hub, bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/client", hub.ServeClient)
@@ -220,17 +284,16 @@ func TestHub_ServeClient_RejectsConcurrentPromptSubmits(t *testing.T) {
 	defer llmProxy.Close()
 
 	hub := websocket.NewHub()
-	p := New(hub, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	bridge := &mockROSBridge{connected: true}
+	p := New(hub, bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
 	hub.SetPromptHandler(p)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/client", hub.ServeClient)
-	mux.HandleFunc("/ws/bridge", hub.ServeBridge)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	clientWS := dialTestWS(t, server.URL, "/ws/client")
-	bridgeWS := dialTestWS(t, server.URL, "/ws/bridge")
 	time.Sleep(50 * time.Millisecond)
 
 	sendPrompt := func(text string) {
@@ -257,8 +320,8 @@ func TestHub_ServeClient_RejectsConcurrentPromptSubmits(t *testing.T) {
 
 	close(unblock)
 
-	// First prompt still completes and delivers action recipe to bridge
-	readUntil(t, bridgeWS, websocket.TypeActionRecipe, 2*time.Second)
+	// First prompt completes and delivers action recipe to client
+	readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
 }
 
 type cancelTrackingHandler struct {

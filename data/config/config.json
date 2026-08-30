@@ -1,7 +1,8 @@
 {
   "server": {
     "port": 8080,
-    "proxy_url": "http://localhost:8081"
+    "proxy_url": "http://localhost:8081",
+    "rosbridge_url": "ws://localhost:9090"
   },
   "proxy": {
     "port": 8081,

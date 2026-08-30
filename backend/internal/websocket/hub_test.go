@@ -66,24 +66,25 @@ func TestHub_ClientPromptSubmit_DispatchesToHandler(t *testing.T) {
 	}
 }
 
-func TestHub_BridgeStatusUpdate_BroadcastsToClients(t *testing.T) {
+func TestHub_BridgeObserver_BroadcastsToClient(t *testing.T) {
 	hub := NewHub()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/client", hub.ServeClient)
-	mux.HandleFunc("/ws/bridge", hub.ServeBridge)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	clientWS := dial(t, server, "/ws/client")
-	bridgeWS := dial(t, server, "/ws/bridge")
+	time.Sleep(50 * time.Millisecond)
 
-	time.Sleep(50 * time.Millisecond) // let both registrations land
-
-	payload, _ := json.Marshal(map[string]string{"state": "executing"})
-	if err := bridgeWS.WriteJSON(Envelope{Type: TypeStatusUpdate, Payload: payload}); err != nil {
-		t.Fatalf("bridge write: %v", err)
+	// Consume initial bridge_connected: false status
+	var initial Envelope
+	if err := clientWS.ReadJSON(&initial); err != nil {
+		t.Fatalf("read initial status: %v", err)
 	}
+
+	// Trigger connection change
+	hub.OnBridgeConnectionChange(true)
 
 	clientWS.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var got Envelope
@@ -93,15 +94,19 @@ func TestHub_BridgeStatusUpdate_BroadcastsToClients(t *testing.T) {
 	if got.Type != TypeStatusUpdate {
 		t.Errorf("got.Type = %q, want %q", got.Type, TypeStatusUpdate)
 	}
-}
 
-func TestHub_SendToBridge_NoBridgeConnected(t *testing.T) {
-	hub := NewHub()
-	if hub.BridgeConnected() {
-		t.Fatal("expected no bridge connected initially")
+	if !hub.BridgeConnected() {
+		t.Error("expected BridgeConnected() to be true")
 	}
-	if err := hub.SendToBridge(Envelope{Type: TypeActionRecipe}); err == nil {
-		t.Error("expected error sending to bridge when none connected")
+
+	// Trigger object updates
+	hub.OnObjectsUpdated([]string{"cup", "bottle"})
+
+	if err := clientWS.ReadJSON(&got); err != nil {
+		t.Fatalf("client read: %v", err)
+	}
+	if !strings.Contains(string(got.Payload), "bottle") {
+		t.Errorf("expected object_list in payload, got %s", string(got.Payload))
 	}
 }
 
@@ -127,59 +132,5 @@ func TestHub_ServeClient_RejectsSecondClient(t *testing.T) {
 
 	if clients, _ := hub.Stats(); clients != 1 {
 		t.Errorf("clients = %d, want 1 (the first client must remain connected after the second was rejected)", clients)
-	}
-}
-
-func TestHub_ServeBridge_RejectsSecondBridge(t *testing.T) {
-	hub := NewHub()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/bridge", hub.ServeBridge)
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	first := dial(t, server, "/ws/bridge")
-	defer first.Close()
-	time.Sleep(50 * time.Millisecond)
-
-	url := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/bridge"
-	_, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if err == nil {
-		t.Fatal("expected a second bridge connection to be rejected")
-	}
-	if resp == nil || resp.StatusCode != http.StatusConflict {
-		t.Errorf("response = %v, want status %d", resp, http.StatusConflict)
-	}
-
-	if !hub.BridgeConnected() {
-		t.Error("expected the first bridge to remain connected after the second was rejected")
-	}
-}
-
-func TestHub_SendToBridge_DeliversToConnectedBridge(t *testing.T) {
-	hub := NewHub()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/bridge", hub.ServeBridge)
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	bridgeWS := dial(t, server, "/ws/bridge")
-	time.Sleep(50 * time.Millisecond)
-
-	if !hub.BridgeConnected() {
-		t.Fatal("expected bridge to be registered")
-	}
-
-	payload, _ := json.Marshal(map[string]string{"recipe_name": "test"})
-	if err := hub.SendToBridge(Envelope{Type: TypeActionRecipe, Payload: payload}); err != nil {
-		t.Fatalf("SendToBridge() error = %v", err)
-	}
-
-	bridgeWS.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var got Envelope
-	if err := bridgeWS.ReadJSON(&got); err != nil {
-		t.Fatalf("bridge read: %v", err)
-	}
-	if got.Type != TypeActionRecipe {
-		t.Errorf("got.Type = %q, want %q", got.Type, TypeActionRecipe)
 	}
 }

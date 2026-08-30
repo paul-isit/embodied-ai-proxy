@@ -34,7 +34,7 @@ func testPipeline(t *testing.T, llmResponseText string) *pipeline.Pipeline {
 	}))
 	t.Cleanup(llmProxy.Close)
 
-	return pipeline.New(websocket.NewHub(), v, llmProxy.URL, "Schema:\n{schema_template}\nObjects:{available_objects}\nCommand:{user_command}", []byte(`{}`))
+	return pipeline.New(websocket.NewHub(), nil, v, llmProxy.URL, "Schema:\n{schema_template}\nObjects:{available_objects}\nCommand:{user_command}", []byte(`{}`))
 }
 
 func TestInfoHandler_ReportsServerProxyAndHubState(t *testing.T) {

@@ -10,9 +10,15 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
+
+// ROSBridge defines the interface for communicating with the ROS 2 robot system.
+type ROSBridge interface {
+	IsConnected() bool
+	GetAvailableObjects() []string
+	ExecuteRecipe(ctx context.Context, recipeJSON []byte) error
+}
 
 // Pipeline builds prompts from the system prompt template + schema +
 // available objects, dispatches them to the LLM proxy, and validates the
@@ -20,24 +26,23 @@ import (
 // backs the synchronous HTTP endpoint.
 type Pipeline struct {
 	hub          *websocket.Hub
+	bridge       ROSBridge
 	validator    *validator.Validator
 	proxyURL     string
 	systemPrompt string
 	schemaBlock  string
 	httpClient   *http.Client
-
-	mu      sync.RWMutex
-	objects []string
 }
 
 // New creates a new Pipeline coordinator.
-func New(hub *websocket.Hub, v *validator.Validator, proxyURL, systemPrompt string, schemaRaw []byte) *Pipeline {
+func New(hub *websocket.Hub, bridge ROSBridge, v *validator.Validator, proxyURL, systemPrompt string, schemaRaw []byte) *Pipeline {
 	var formattedJsonSchema bytes.Buffer
 	if err := json.Indent(&formattedJsonSchema, schemaRaw, "", "  "); err != nil {
 		formattedJsonSchema.Write(schemaRaw)
 	}
 	return &Pipeline{
 		hub:          hub,
+		bridge:       bridge,
 		validator:    v,
 		proxyURL:     strings.TrimRight(proxyURL, "/"),
 		systemPrompt: systemPrompt,
@@ -125,10 +130,19 @@ func (p *Pipeline) Run(ctx context.Context, userText string, objects []string) R
 }
 
 func recipeStatus(doc any) string {
-	obj, ok := doc.(map[string]any)
+	m, ok := doc.(map[string]any)
 	if !ok {
 		return ""
 	}
-	status, _ := obj["status"].(string)
-	return status
+	s, _ := m["status"].(string)
+	return s
+}
+
+func recipeName(doc any) string {
+	m, ok := doc.(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := m["recipe_name"].(string)
+	return s
 }

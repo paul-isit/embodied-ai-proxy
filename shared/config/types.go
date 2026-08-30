@@ -11,8 +11,9 @@ const (
 
 // ServerConfig holds settings for the Go API backend.
 type ServerConfig struct {
-	Port     int    `json:"port"`
-	ProxyURL string `json:"proxy_url"`
+	Port         int    `json:"port"`
+	ProxyURL     string `json:"proxy_url"`
+	RosbridgeURL string `json:"rosbridge_url"`
 }
 
 // LLMConfig holds settings for the upstream LLM provider the proxy talks to.
@@ -43,8 +44,9 @@ type AppConfig struct {
 func defaultAppConfig() AppConfig {
 	return AppConfig{
 		Server: ServerConfig{
-			Port:     DefaultServerPort,
-			ProxyURL: DefaultProxyURL,
+			Port:         DefaultServerPort,
+			ProxyURL:     DefaultProxyURL,
+			RosbridgeURL: DefaultRosbridgeURL,
 		},
 		Proxy: ProxyConfig{
 			Port: DefaultProxyPort,
