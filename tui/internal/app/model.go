@@ -63,7 +63,6 @@ func NewModel(appServerURL string) Model {
 	ti := textinput.New()
 	ti.Placeholder = "Type a command and press Enter..."
 	ti.Focus()
-	ti.CharLimit = 500
 
 	return Model{
 		AppServerURL: appServerURL,
@@ -101,7 +100,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Ready = true
 		m.viewport.Width = contentWidth(m.Width)
 		m.viewport.Height = max(3, m.Height-fixedLines)
-		m.refreshViewport()
+		m = m.refreshViewport()
 		return m, nil
 
 	case tea.MouseMsg:
@@ -145,22 +144,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bridgeConnected = bc
 			}
 			return m, waitForWSMsg(m.ws.MsgChan())
-
-		case client.TypeActionRecipe:
-			latency := time.Since(m.promptSentAt)
-			m.inFlight = false
-			m.appendEntry("", formatActionRecipe(msg.Payload, m.verbosity, latency))
-			return m, waitForWSMsg(m.ws.MsgChan())
-
-		case client.TypeLogEvent:
-			m.appendEntry("", formatLogEvent(msg.Payload))
-			return m, waitForWSMsg(m.ws.MsgChan())
-
-		default:
-			m.inFlight = false
-			m.appendEntry("", formatEnvelope(msg))
-			return m, waitForWSMsg(m.ws.MsgChan())
 		}
+		m.inFlight = false
+		m.entries = append(m.entries, formatEnvelope(msg))
+		m.refreshViewport()
+		return m, waitForWSMsg(m.ws.MsgChan())
 	}
 
 	var cmd tea.Cmd
@@ -181,11 +169,13 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.historyDraft = ""
 
 	if err := m.ws.SendPrompt(text); err != nil {
-		m.appendEntry(errTag, err.Error())
+		m.entries = append(m.entries, errorStyle.Render("error: "+err.Error()))
+		m.refreshViewport()
 		return m, nil
 	}
 
-	m.appendEntry(userTag, text)
+	m.entries = append(m.entries, promptLabel+text)
+	m.refreshViewport()
 	m.input.SetValue("")
 	m.inFlight = true
 	m.promptSentAt = time.Now()
@@ -240,10 +230,10 @@ func (m Model) navigateHistory(key tea.KeyType) (tea.Model, tea.Cmd) {
 // refreshViewport re-wraps every entry to the viewport's current width and
 // scrolls to the bottom, so new messages are always visible immediately
 // while pgup/pgdn (or the mouse wheel) can still scroll back through history.
-func (m *Model) refreshViewport() {
+func (m Model) refreshViewport() Model {
 	width := m.viewport.Width
 	if width <= 0 {
-		return
+		return m
 	}
 	wrapped := make([]string, len(m.entries))
 	for i, e := range m.entries {
@@ -251,6 +241,7 @@ func (m *Model) refreshViewport() {
 	}
 	m.viewport.SetContent(strings.Join(wrapped, "\n\n"))
 	m.viewport.GotoBottom()
+	return m
 }
 
 // appendEntry appends a tagged line and refreshes the viewport in one step.

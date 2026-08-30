@@ -1,4 +1,4 @@
-package prompt
+package pipeline
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func dialTestWS(t *testing.T, httpURL, path string) *gorillaws.Conn {
 
 func testValidator(t *testing.T) *validator.Validator {
 	t.Helper()
-	path, err := filepath.Abs("../../../configs/json_schema.json")
+	path, err := filepath.Abs("../../../data/config/json_schema.json")
 	if err != nil {
 		t.Fatalf("resolve schema path: %v", err)
 	}
@@ -46,8 +46,6 @@ func testValidator(t *testing.T) *validator.Validator {
 }
 
 // readUntil reads and discards envelopes until one of type wantType arrives
-// (e.g. skipping the hub's now-standard "current bridge state" status_update
-// that every newly-connected client receives up front).
 func readUntil(t *testing.T, ws *gorillaws.Conn, wantType string, timeout time.Duration) websocket.Envelope {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -135,9 +133,6 @@ func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndDispatchesToBridge(t *te
 		t.Errorf("bridge got type %q, want %q", bridgeMsg.Type, websocket.TypeActionRecipe)
 	}
 
-	// The client also receives one or two status_update envelopes first (its
-	// own initial bridge state, then the bridge's connect broadcast) before
-	// the action_recipe - skip past those.
 	clientMsg := readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
 	if clientMsg.Type != websocket.TypeActionRecipe {
 		t.Errorf("client got type %q, want %q", clientMsg.Type, websocket.TypeActionRecipe)
@@ -211,12 +206,6 @@ func TestPipeline_HandlePrompt_NoBridgeConnected_BroadcastsErrorWithoutCallingLL
 	}
 }
 
-// TestHub_ServeClient_ProcessesPromptSubmitsSequentially covers the
-// serialization guarantee that used to be enforced by a "busy" flag inside
-// Pipeline itself: since the hub only ever has one connected client and
-// calls HandlePrompt synchronously from that client's read loop (see
-// websocket.Hub.ServeClient), a second prompt_submit sent before the first
-// finishes must sit unprocessed on the socket rather than run concurrently.
 func TestHub_ServeClient_ProcessesPromptSubmitsSequentially(t *testing.T) {
 	var callCount atomic.Int32
 	started := make(chan struct{}, 1)

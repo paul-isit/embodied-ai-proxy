@@ -1,4 +1,16 @@
-package prompt
+package pipeline
+
+import (
+	"encoding/json"
+	"regexp"
+	"strings"
+)
+
+const (
+	placeholderSchema  = "{schema_template}"
+	placeholderObjects = "{available_objects}"
+	placeholderCommand = "{user_command}"
+)
 
 // codeFence is a literal ``` sequence. Go raw strings (backtick-delimited)
 // can't contain a backtick, so DefaultSystemPrompt is built by breaking out
@@ -78,3 +90,46 @@ Strictly adhere and follow the object names that are provided in the object list
 This is the user command, please generate the JSON for what the user is asking:
 User Command: '{user_command}'
 `
+
+func (p *Pipeline) buildPrompt(userText string, objects []string) string {
+	objectsStr := "No objects currently mapped."
+	if len(objects) > 0 {
+		lines := make([]string, len(objects))
+		for i, obj := range objects {
+			lines[i] = "- " + obj
+		}
+		objectsStr = strings.Join(lines, "\n")
+	}
+
+	result := p.systemPrompt
+	result = strings.ReplaceAll(result, placeholderSchema, p.schemaBlock)
+	result = strings.ReplaceAll(result, placeholderObjects, objectsStr)
+	result = strings.ReplaceAll(result, placeholderCommand, userText)
+	return result
+}
+
+// jsonObjectPattern is the same last-resort recovery the original Python
+// validate_and_extract_json used: if the response isn't valid JSON even
+// after stripping markdown fences, grab the first "{...}" block out of
+// whatever conversational filler the LLM wrapped it in.
+var jsonObjectPattern = regexp.MustCompile(`(?s)\{.*\}`)
+
+// extractJSON strips optional markdown code fences from raw LLM output and,
+// if the result still isn't valid JSON, falls back to a regex scan for a
+// JSON object embedded in surrounding text - mirroring the original Python
+// validate_and_extract_json behaviour in full.
+func extractJSON(raw string) string {
+	text := strings.TrimSpace(raw)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
+
+	if json.Valid([]byte(text)) {
+		return text
+	}
+	if match := jsonObjectPattern.FindString(text); match != "" {
+		return match
+	}
+	return text
+}

@@ -42,10 +42,7 @@ func (c *conn) writeJSON(v any) error {
 	return c.ws.WriteJSON(v)
 }
 
-// PromptHandler processes a prompt_submit payload received from a client
-// connection. Implemented by the prompt pipeline (task 3.3) and wired in
-// after construction via SetPromptHandler, to avoid an import cycle between
-// the hub and the pipeline that dispatches through it.
+// PromptHandler processes a prompt_submit payload received from a client connection.
 type PromptHandler interface {
 	HandlePrompt(prompt string)
 }
