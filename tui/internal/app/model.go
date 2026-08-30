@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"time"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,7 +19,11 @@ var (
 	statusStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7AA2F7"))
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
 	mutedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#565F89"))
-	promptLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#9ECE6A")).Render("> ")
+
+	sysTag  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7AA2F7")).Render("[SYS] ")
+	userTag = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BB9AF7")).Render("[USER] ")
+	errTag  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F7768E")).Render("[ERR] ")
+	okTag   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("[OK] ")
 )
 
 // fixedLines is the number of rows the layout always reserves outside the
@@ -43,6 +49,13 @@ type Model struct {
 	connMsg         string
 	bridgeConnected *bool
 	inFlight        bool
+
+	history      []string
+	historyIndex int
+	historyDraft string
+
+	verbosity    int
+	promptSentAt time.Time
 }
 
 // NewModel creates a new initial Model instance
@@ -58,6 +71,8 @@ func NewModel(appServerURL string) Model {
 		input:        ti,
 		viewport:     viewport.New(0, 0),
 		connMsg:      "connecting...",
+		historyIndex: -1,
+		verbosity:    1,
 	}
 }
 
@@ -101,10 +116,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyEnter:
 			return m.submitPrompt()
+		case tea.KeyUp, tea.KeyDown:
+			return m.navigateHistory(msg.Type)
 		case tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
+		case tea.KeyF2:
+			return m.cycleVerbosity()
 		}
 
 	case client.Connected:
@@ -120,16 +139,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForWSMsg(m.ws.MsgChan())
 
 	case client.Envelope:
-		if msg.Type == client.TypeStatusUpdate {
+		switch msg.Type {
+		case client.TypeStatusUpdate:
 			if bc := decodeBridgeConnected(msg.Payload); bc != nil {
 				m.bridgeConnected = bc
 			}
 			return m, waitForWSMsg(m.ws.MsgChan())
+
+		case client.TypeActionRecipe:
+			latency := time.Since(m.promptSentAt)
+			m.inFlight = false
+			m.appendEntry("", formatActionRecipe(msg.Payload, m.verbosity, latency))
+			return m, waitForWSMsg(m.ws.MsgChan())
+
+		case client.TypeLogEvent:
+			m.appendEntry("", formatLogEvent(msg.Payload))
+			return m, waitForWSMsg(m.ws.MsgChan())
+
+		default:
+			m.inFlight = false
+			m.appendEntry("", formatEnvelope(msg))
+			return m, waitForWSMsg(m.ws.MsgChan())
 		}
-		m.inFlight = false
-		m.entries = append(m.entries, formatEnvelope(msg))
-		m.refreshViewport()
-		return m, waitForWSMsg(m.ws.MsgChan())
 	}
 
 	var cmd tea.Cmd
@@ -145,16 +176,64 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	m.history = append([]string{text}, m.history...)
+	m.historyIndex = -1
+	m.historyDraft = ""
+
 	if err := m.ws.SendPrompt(text); err != nil {
-		m.entries = append(m.entries, errorStyle.Render("error: "+err.Error()))
-		m.refreshViewport()
+		m.appendEntry(errTag, err.Error())
 		return m, nil
 	}
 
-	m.entries = append(m.entries, promptLabel+text)
-	m.refreshViewport()
+	m.appendEntry(userTag, text)
 	m.input.SetValue("")
 	m.inFlight = true
+	m.promptSentAt = time.Now()
+	return m, nil
+}
+
+// cycleVerbosity advances response detail level 1 (Filtered) -> 2 (Full
+// Context) -> 3 (Debug) -> back to 1, logging the change as a SYS line.
+func (m Model) cycleVerbosity() (tea.Model, tea.Cmd) {
+	m.verbosity = (m.verbosity % 3) + 1
+	labels := map[int]string{1: "L1 - Filtered", 2: "L2 - Full Context", 3: "L3 - Debug"}
+	m.appendEntry(sysTag, "Verbosity set to "+labels[m.verbosity])
+	return m, nil
+}
+
+// navigateHistory moves through previously submitted prompts on Up/Down,
+// preserving whatever was being typed (historyDraft) so paging back past
+// the newest entry restores it rather than losing it.
+func (m Model) navigateHistory(key tea.KeyType) (tea.Model, tea.Cmd) {
+	if len(m.history) == 0 {
+		return m, nil
+	}
+
+	switch key {
+	case tea.KeyUp:
+		if m.historyIndex == -1 {
+			m.historyDraft = m.input.Value()
+		}
+		if m.historyIndex+1 < len(m.history) {
+			m.historyIndex++
+			m.input.SetValue(m.history[m.historyIndex])
+			m.input.CursorEnd()
+		}
+
+	case tea.KeyDown:
+		if m.historyIndex == -1 {
+			return m, nil
+		}
+		m.historyIndex--
+		if m.historyIndex < 0 {
+			m.historyIndex = -1
+			m.input.SetValue(m.historyDraft)
+		} else {
+			m.input.SetValue(m.history[m.historyIndex])
+		}
+		m.input.CursorEnd()
+	}
+
 	return m, nil
 }
 
@@ -172,6 +251,12 @@ func (m *Model) refreshViewport() {
 	}
 	m.viewport.SetContent(strings.Join(wrapped, "\n\n"))
 	m.viewport.GotoBottom()
+}
+
+// appendEntry appends a tagged line and refreshes the viewport in one step.
+func (m *Model) appendEntry(tag, text string) {
+	m.entries = append(m.entries, tag+text)
+	m.refreshViewport()
 }
 
 // decodeBridgeConnected extracts the optional bridge_connected field from a
@@ -193,6 +278,74 @@ func formatEnvelope(env client.Envelope) string {
 		return fmt.Sprintf("[%s] %s", env.Type, string(env.Payload))
 	}
 	return fmt.Sprintf("[%s]\n%s", env.Type, pretty.String())
+}
+
+// formatActionRecipe renders an action_recipe envelope: a validated recipe
+// and its steps on success, or the schema/parsing error otherwise, per
+// data/config/json_schema.json's success/error document shapes.
+// beyond the base status line is gated by verbosity:
+//
+//	L1 - status/steps or error only
+//	L2 - adds RawOutput, when present
+//	L3 - adds latency/step-count metadata
+func formatActionRecipe(payload json.RawMessage, verbosity int, latency time.Duration) string {
+	var recipe ActionRecipeMsg
+	if err := json.Unmarshal(payload, &recipe); err != nil {
+		return errTag + "failed to parse action_recipe: " + err.Error()
+	}
+
+	var b strings.Builder
+
+	if recipe.Status != "success" {
+		b.WriteString(errTag)
+		b.WriteString("Schema parsing failure")
+		if recipe.ErrorType != "" {
+			b.WriteString(" (" + recipe.ErrorType + ")")
+		}
+		if recipe.Message != "" {
+			b.WriteByte('\n')
+			b.WriteString(recipe.Message)
+		}
+	} else {
+		b.WriteString(okTag)
+		b.WriteString("Validated Robot Recipe")
+		if recipe.RecipeName != "" {
+			b.WriteString(": " + recipe.RecipeName)
+		}
+		for _, step := range recipe.Steps {
+			b.WriteByte('\n')
+			b.WriteString(fmt.Sprintf("  %d. %s", step.StepID, step.Action))
+			if step.Description != "" {
+				b.WriteString(" - " + step.Description)
+			}
+		}
+	}
+
+	if verbosity >= 2 && recipe.RawOutput != "" {
+		b.WriteString("\n--- RAW OUTPUT ---\n")
+		b.WriteString(recipe.RawOutput)
+	}
+
+	if verbosity >= 3 {
+		b.WriteString(fmt.Sprintf("\n--- METADATA ---\nLatency: %dms | Steps: %d", latency.Milliseconds(), len(recipe.Steps)))
+	}
+
+	return b.String()
+}
+
+// formatLogEvent renders a log_event envelope, tagging it as an error or
+// system line depending on its reported level.
+func formatLogEvent(payload json.RawMessage) string {
+	var evt LogEventMsg
+	if err := json.Unmarshal(payload, &evt); err != nil {
+		return errTag + "failed to parse log_event: " + err.Error()
+	}
+
+	tag := sysTag
+	if strings.EqualFold(evt.Level, "error") {
+		tag = errTag
+	}
+	return tag + evt.Message
 }
 
 func contentWidth(termWidth int) int {
