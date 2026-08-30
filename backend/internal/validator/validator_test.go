@@ -8,7 +8,7 @@ import (
 
 func newTestValidator(t *testing.T) *Validator {
 	t.Helper()
-	path, err := filepath.Abs("../../../configs/json_schema.json")
+	path, err := filepath.Abs("../../../data/config/json_schema.json")
 	if err != nil {
 		t.Fatalf("resolve schema path: %v", err)
 	}

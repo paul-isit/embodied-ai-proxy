@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"embodied-ai-proxy/backend/internal/api"
-	"embodied-ai-proxy/backend/internal/prompt"
+	"embodied-ai-proxy/backend/internal/pipeline"
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	sharedconfig "embodied-ai-proxy/shared/config"
@@ -69,7 +69,7 @@ func (server *AppServer) initialize() error {
 		return fmt.Errorf("compile json schema %s: %w", schemaPath, err)
 	}
 
-	systemPrompt := prompt.DefaultSystemPrompt
+	systemPrompt := pipeline.DefaultSystemPrompt
 	systemPromptPath := filepath.Join(configDir, systemPromptFileName)
 	if raw, err := os.ReadFile(systemPromptPath); err != nil {
 		log.Printf("[Server] %s not found at %s, falling back to default system prompt", systemPromptFileName, systemPromptPath)
@@ -78,18 +78,18 @@ func (server *AppServer) initialize() error {
 	}
 
 	hub := websocket.NewHub()
-	pipeline := prompt.New(hub, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
-	hub.SetPromptHandler(pipeline)
-	hub.SetStatusHandler(pipeline)
+	p := pipeline.New(hub, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
+	hub.SetPromptHandler(p)
+	hub.SetStatusHandler(p)
 
 	log.Printf("[Server] Registering route: GET /ws/client")
 	server.mux.HandleFunc("/ws/client", hub.ServeClient)
 	log.Printf("[Server] Registering route: GET /ws/bridge")
 	server.mux.HandleFunc("/ws/bridge", hub.ServeBridge)
 	log.Printf("[Server] Registering route: POST /api/prompt")
-	server.mux.HandleFunc("/api/prompt", api.PromptHandler(pipeline))
+	server.mux.HandleFunc("/api/prompt", api.PromptHandler(p))
 	log.Printf("[Server] Registering route: GET /api/info")
-	server.mux.HandleFunc("/api/info", api.InfoHandler(appConfig, hub, pipeline))
+	server.mux.HandleFunc("/api/info", api.InfoHandler(appConfig, hub, p))
 
 	return nil
 }
