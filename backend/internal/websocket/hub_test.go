@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ type recordingHandler struct {
 	done    chan struct{}
 }
 
-func (r *recordingHandler) HandlePrompt(prompt string) {
+func (r *recordingHandler) HandlePrompt(ctx context.Context, prompt string) {
 	r.mu.Lock()
 	r.prompts = append(r.prompts, prompt)
 	r.mu.Unlock()

@@ -126,7 +126,7 @@ func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndDispatchesToBridge(t *te
 	bridgeWS := dialTestWS(t, server.URL, "/ws/bridge")
 	time.Sleep(50 * time.Millisecond)
 
-	p.HandlePrompt("go home")
+	p.HandlePrompt(context.Background(), "go home")
 
 	bridgeMsg := readUntil(t, bridgeWS, websocket.TypeActionRecipe, 2*time.Second)
 	if bridgeMsg.Type != websocket.TypeActionRecipe {
@@ -188,7 +188,7 @@ func TestPipeline_HandlePrompt_NoBridgeConnected_BroadcastsErrorWithoutCallingLL
 	clientWS := dialTestWS(t, server.URL, "/ws/client")
 	time.Sleep(50 * time.Millisecond)
 
-	p.HandlePrompt("go home")
+	p.HandlePrompt(context.Background(), "go home")
 
 	msg := readUntil(t, clientWS, websocket.TypeLogEvent, 2*time.Second)
 	var payload struct {
@@ -206,7 +206,7 @@ func TestPipeline_HandlePrompt_NoBridgeConnected_BroadcastsErrorWithoutCallingLL
 	}
 }
 
-func TestHub_ServeClient_ProcessesPromptSubmitsSequentially(t *testing.T) {
+func TestHub_ServeClient_RejectsConcurrentPromptSubmits(t *testing.T) {
 	var callCount atomic.Int32
 	started := make(chan struct{}, 1)
 	unblock := make(chan struct{})
@@ -241,18 +241,71 @@ func TestHub_ServeClient_ProcessesPromptSubmitsSequentially(t *testing.T) {
 	}
 
 	sendPrompt("first")
-	<-started // the client's read loop is now blocked inside HandlePrompt, mid-LLM-call
+	<-started // first prompt is executing inside LLM call
 
-	sendPrompt("second") // must sit unread on the socket until "first" finishes
+	sendPrompt("second") // concurrent prompt while busy
 
-	time.Sleep(200 * time.Millisecond)
+	// Second prompt should receive an immediate log_event rejection without blocking read loop
+	rejectionMsg := readUntil(t, clientWS, websocket.TypeLogEvent, 2*time.Second)
+	if !strings.Contains(string(rejectionMsg.Payload), "currently in progress") {
+		t.Errorf("expected currently in progress rejection, got: %s", string(rejectionMsg.Payload))
+	}
+
 	if n := callCount.Load(); n != 1 {
-		t.Fatalf("callCount = %d before unblocking, want 1 (prompt_submit must not be processed concurrently)", n)
+		t.Fatalf("callCount = %d, want 1", n)
 	}
 
 	close(unblock)
 
-	// Both prompts still complete, one after the other, once unblocked.
+	// First prompt still completes and delivers action recipe to bridge
 	readUntil(t, bridgeWS, websocket.TypeActionRecipe, 2*time.Second)
-	readUntil(t, bridgeWS, websocket.TypeActionRecipe, 2*time.Second)
+}
+
+type cancelTrackingHandler struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+func (c *cancelTrackingHandler) HandlePrompt(ctx context.Context, prompt string) {
+	close(c.started)
+	<-ctx.Done()
+	close(c.canceled)
+}
+
+func TestHub_ServeClient_DisconnectCancelsInFlightPrompt(t *testing.T) {
+	handler := &cancelTrackingHandler{
+		started:  make(chan struct{}),
+		canceled: make(chan struct{}),
+	}
+
+	hub := websocket.NewHub()
+	hub.SetPromptHandler(handler)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/client", hub.ServeClient)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	clientWS := dialTestWS(t, server.URL, "/ws/client")
+	time.Sleep(50 * time.Millisecond)
+
+	payload, _ := json.Marshal(map[string]string{"prompt": "long task"})
+	_ = clientWS.WriteJSON(websocket.Envelope{Type: websocket.TypePromptSubmit, Payload: payload})
+
+	// Wait until HandlePrompt is actually running
+	select {
+	case <-handler.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for prompt handler to start")
+	}
+
+	// Close client connection while prompt is in-flight
+	clientWS.Close()
+
+	select {
+	case <-handler.canceled:
+		// Success: context was canceled when client disconnected
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for in-flight prompt context to be canceled on disconnect")
+	}
 }

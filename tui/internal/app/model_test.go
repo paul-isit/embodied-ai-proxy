@@ -127,3 +127,22 @@ func TestActionRecipeEnvelopeAppendsToFeedAndClearsInFlight(t *testing.T) {
 		t.Fatalf("expected the action_recipe envelope in the feed, got %v", nm.entries)
 	}
 }
+
+func TestStatusUpdateEnvelopeUpdatesObjectList(t *testing.T) {
+	m := NewModel("http://localhost:8080")
+	updated, _ := m.Update(client.Envelope{
+		Type:    client.TypeStatusUpdate,
+		Payload: []byte(`{"object_list": ["red_cube", "green_apple"]}`),
+	})
+	nm := updated.(Model)
+
+	if len(nm.availableObjects) != 2 || nm.availableObjects[0] != "red_cube" || nm.availableObjects[1] != "green_apple" {
+		t.Fatalf("expected availableObjects to be updated, got %v", nm.availableObjects)
+	}
+
+	nm.Ready = true
+	view := nm.View()
+	if !strings.Contains(view, "red_cube, green_apple") {
+		t.Fatalf("expected view to contain objects, got %s", view)
+	}
+}

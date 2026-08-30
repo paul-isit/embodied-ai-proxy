@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 )
 
 // SetAvailableObjects updates the cached workspace object list, typically
@@ -40,17 +39,18 @@ func (p *Pipeline) HandleBridgeStatus(env websocket.Envelope) {
 // HandlePrompt implements websocket.PromptHandler: it runs the pipeline
 // using the cached workspace object list and sends the outcome to the
 // connected client.
-func (p *Pipeline) HandlePrompt(userText string) {
+func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 	if !p.hub.BridgeConnected() {
 		log.Printf("[Pipeline] rejecting command %q: no ROS 2 bridge connected", userText)
 		p.sendLog("error", "cannot execute commands: no ROS 2 bridge connected")
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
 	result := p.Run(ctx, userText, p.availableObjects())
+	if ctx.Err() != nil {
+		log.Printf("[Pipeline] command %q aborted: context canceled/timed out: %v", userText, ctx.Err())
+		return
+	}
 	if result.Error != "" {
 		p.sendLog("error", result.Error)
 		return

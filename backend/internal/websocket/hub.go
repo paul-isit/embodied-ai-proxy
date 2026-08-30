@@ -1,11 +1,13 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -44,7 +46,7 @@ func (c *conn) writeJSON(v any) error {
 
 // PromptHandler processes a prompt_submit payload received from a client connection.
 type PromptHandler interface {
-	HandlePrompt(prompt string)
+	HandlePrompt(ctx context.Context, prompt string)
 }
 
 // StatusHandler observes each status_update received from the bridge before
@@ -125,7 +127,22 @@ func (h *Hub) ServeClient(w http.ResponseWriter, r *http.Request) {
 		c.writeJSON(Envelope{Type: TypeStatusUpdate, Payload: payload})
 	}
 
+	clientCtx, clientCancel := context.WithCancel(r.Context())
+
+	var (
+		promptMu     sync.Mutex
+		promptCancel context.CancelFunc
+		isBusy       bool
+	)
+
 	defer func() {
+		clientCancel()
+		promptMu.Lock()
+		if promptCancel != nil {
+			promptCancel()
+		}
+		promptMu.Unlock()
+
 		h.mu.Lock()
 		if h.client == c {
 			h.client = nil
@@ -158,16 +175,30 @@ func (h *Hub) ServeClient(w http.ResponseWriter, r *http.Request) {
 		handler := h.promptHandler
 		h.mu.RUnlock()
 		if handler != nil {
-			// Handled synchronously (not spawned into a goroutine): since
-			// only one client is ever connected, this read loop is the only
-			// place prompt_submit can originate from, so processing it
-			// in-line here is what guarantees at most one command runs at a
-			// time - there's no separate "busy" flag to maintain. The
-			// trade-off is that this connection's reads are blocked for the
-			// duration of the command (up to the pipeline's internal
-			// timeout); that's fine while prompt_submit is the only message
-			// a client ever sends.
-			handler.HandlePrompt(payload.Prompt)
+			promptMu.Lock()
+			if isBusy {
+				promptMu.Unlock()
+				log.Printf("[Hub] rejecting prompt_submit: a command is already in progress")
+				h.SendToClient(Envelope{
+					Type:    TypeLogEvent,
+					Payload: []byte(`{"level":"error","message":"command rejected: another command is currently in progress"}`),
+				})
+				continue
+			}
+			isBusy = true
+			promptCtx, cancel := context.WithTimeout(clientCtx, 60*time.Second)
+			promptCancel = cancel
+			promptMu.Unlock()
+
+			go func(pText string, pCtx context.Context) {
+				defer func() {
+					promptMu.Lock()
+					isBusy = false
+					promptCancel = nil
+					promptMu.Unlock()
+				}()
+				handler.HandlePrompt(pCtx, pText)
+			}(payload.Prompt, promptCtx)
 		}
 	}
 }

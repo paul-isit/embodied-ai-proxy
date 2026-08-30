@@ -39,10 +39,11 @@ type Model struct {
 	input    textinput.Model
 	viewport viewport.Model
 
-	entries         []string
-	connMsg         string
-	bridgeConnected *bool
-	inFlight        bool
+	entries          []string
+	connMsg          string
+	bridgeConnected  *bool
+	availableObjects []string
+	inFlight         bool
 }
 
 // NewModel creates a new initial Model instance
@@ -120,8 +121,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.Envelope:
 		if msg.Type == client.TypeStatusUpdate {
-			if bc := decodeBridgeConnected(msg.Payload); bc != nil {
+			bc, objList := decodeStatusUpdate(msg.Payload)
+			if bc != nil {
 				m.bridgeConnected = bc
+				if !*bc {
+					m.availableObjects = nil
+				}
+			}
+			if objList != nil {
+				m.availableObjects = objList
 			}
 			return m, waitForWSMsg(m.ws.MsgChan())
 		}
@@ -174,16 +182,17 @@ func (m Model) refreshViewport() Model {
 	return m
 }
 
-// decodeBridgeConnected extracts the optional bridge_connected field from a
-// status_update payload, if present.
-func decodeBridgeConnected(payload json.RawMessage) *bool {
+// decodeStatusUpdate extracts the optional bridge_connected and object_list fields from a
+// status_update payload.
+func decodeStatusUpdate(payload json.RawMessage) (*bool, []string) {
 	var v struct {
-		BridgeConnected *bool `json:"bridge_connected"`
+		BridgeConnected *bool    `json:"bridge_connected"`
+		ObjectList      []string `json:"object_list"`
 	}
 	if err := json.Unmarshal(payload, &v); err != nil {
-		return nil
+		return nil, nil
 	}
-	return v.BridgeConnected
+	return v.BridgeConnected, v.ObjectList
 }
 
 // formatEnvelope renders a raw backend envelope as plain text
@@ -217,8 +226,12 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(statusStyle.Render(fmt.Sprintf("Backend: %s [%s] | %s", m.AppServerURL, m.connMsg, bridgeStatusText(m.bridgeConnected))) + "\n")
-	b.WriteString(m.viewport.View() + "\n")
+	statusLine := fmt.Sprintf("Backend: %s [%s] | %s", m.AppServerURL, m.connMsg, bridgeStatusText(m.bridgeConnected))
+	b.WriteString(statusStyle.Render(statusLine))
+	if len(m.availableObjects) > 0 {
+		b.WriteString("\n" + mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
+	}
+	b.WriteString("\n" + m.viewport.View() + "\n")
 
 	if m.inFlight {
 		b.WriteString(statusStyle.Render("waiting for response...") + "\n")
