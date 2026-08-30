@@ -23,8 +23,8 @@ const (
 
 // Pipeline builds prompts from the system prompt template + schema +
 // available objects, dispatches them to the LLM proxy, and validates the
-// result against the action-recipe schema (task 3.3). Its Run method also
-// backs the synchronous HTTP endpoint (task 3.4).
+// result against the action-recipe schema. Its Run method also
+// backs the synchronous HTTP endpoint.
 type Pipeline struct {
 	hub          *websocket.Hub
 	validator    *validator.Validator
@@ -38,16 +38,16 @@ type Pipeline struct {
 }
 
 func New(hub *websocket.Hub, v *validator.Validator, proxyURL, systemPrompt string, schemaRaw []byte) *Pipeline {
-	var pretty bytes.Buffer
-	if err := json.Indent(&pretty, schemaRaw, "", "  "); err != nil {
-		pretty.Write(schemaRaw)
+	var formattedJsonSchema bytes.Buffer
+	if err := json.Indent(&formattedJsonSchema, schemaRaw, "", "  "); err != nil {
+		formattedJsonSchema.Write(schemaRaw) // TODO: improve error handling
 	}
 	return &Pipeline{
 		hub:          hub,
 		validator:    v,
 		proxyURL:     strings.TrimRight(proxyURL, "/"),
 		systemPrompt: systemPrompt,
-		schemaBlock:  pretty.String(),
+		schemaBlock:  formattedJsonSchema.String(),
 		httpClient:   &http.Client{Timeout: 60 * time.Second},
 	}
 }
@@ -180,8 +180,7 @@ type Result struct {
 
 // Run builds the prompt, dispatches it to the LLM proxy, and validates the
 // result. It does not touch the WebSocket hub - callers decide what to do
-// with the outcome. Every call is logged (prompt in, outcome out) so
-// interactions remain auditable from the server log.
+// with the outcome.
 func (p *Pipeline) Run(ctx context.Context, userText string, objects []string) Result {
 	fullPrompt := p.buildPrompt(userText, objects)
 	log.Printf("[Pipeline] command received: %q", userText)
@@ -214,10 +213,7 @@ func recipeStatus(doc any) string {
 
 // HandlePrompt implements websocket.PromptHandler: it runs the pipeline
 // using the cached workspace object list and sends the outcome to the
-// connected client. The hub only supports one connected client and calls
-// HandlePrompt synchronously from that client's read loop (see
-// websocket.Hub.ServeClient), so at most one command is ever in flight
-// here - no separate serialization is needed at this layer.
+// connected client.
 func (p *Pipeline) HandlePrompt(userText string) {
 	if !p.hub.BridgeConnected() {
 		log.Printf("[Pipeline] rejecting command %q: no ROS 2 bridge connected", userText)

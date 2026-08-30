@@ -64,7 +64,7 @@ func (server *AppServer) initialize() error {
 		return fmt.Errorf("read json schema %s: %w", schemaPath, err)
 	}
 
-	v, err := validator.New(schemaPath, schemaRaw)
+	validtr, err := validator.New(schemaPath, schemaRaw)
 	if err != nil {
 		return fmt.Errorf("compile json schema %s: %w", schemaPath, err)
 	}
@@ -78,7 +78,7 @@ func (server *AppServer) initialize() error {
 	}
 
 	hub := websocket.NewHub()
-	pipeline := prompt.New(hub, v, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
+	pipeline := prompt.New(hub, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
 	hub.SetPromptHandler(pipeline)
 	hub.SetStatusHandler(pipeline)
 
