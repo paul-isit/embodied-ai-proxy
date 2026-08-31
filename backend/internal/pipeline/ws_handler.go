@@ -9,60 +9,54 @@ import (
 	"time"
 )
 
-// SetAvailableObjects updates the cached workspace object list, typically
-// from a status_update pushed by the ROS 2 bridge (see HandleBridgeStatus).
-func (p *Pipeline) SetAvailableObjects(objects []string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.objects = objects
-}
-
-func (p *Pipeline) availableObjects() []string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.objects
-}
-
-// HandleBridgeStatus implements websocket.StatusHandler: it inspects a
-// status_update from the bridge for an object_list field and caches it.
-func (p *Pipeline) HandleBridgeStatus(env websocket.Envelope) {
-	var payload struct {
-		ObjectList []string `json:"object_list"`
-	}
-	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		return
-	}
-	if payload.ObjectList != nil {
-		p.SetAvailableObjects(payload.ObjectList)
-	}
-}
+const (
+	defaultLLMTimeout       = 60 * time.Second
+	defaultExecutionTimeout = 120 * time.Second
+)
 
 // HandlePrompt implements websocket.PromptHandler: it runs the pipeline
-// using the cached workspace object list and sends the outcome to the
-// connected client.
-func (p *Pipeline) HandlePrompt(userText string) {
-	if !p.hub.BridgeConnected() {
+// using the workspace object list from the robot bridge, delivers the action recipe
+// to the connected client upon successful robot execution, and dispatches it directly to the robot.
+func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
+	if p.bridge != nil && !p.bridge.IsConnected() {
 		log.Printf("[Pipeline] rejecting command %q: no ROS 2 bridge connected", userText)
 		p.sendLog("error", "cannot execute commands: no ROS 2 bridge connected")
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	var availableObjs []string
+	if p.bridge != nil {
+		availableObjs = p.bridge.GetAvailableObjects()
+	}
 
-	result := p.Run(ctx, userText, p.availableObjects())
+	llmCtx, llmCancel := context.WithTimeout(ctx, defaultLLMTimeout)
+	defer llmCancel()
+
+	result := p.Run(llmCtx, userText, availableObjs)
+	if ctx.Err() != nil {
+		log.Printf("[Pipeline] command %q aborted: context canceled/timed out: %v", userText, ctx.Err())
+		return
+	}
 	if result.Error != "" {
 		p.sendLog("error", result.Error)
 		return
 	}
 
 	if recipeStatus(result.Doc) == "success" {
-		if err := p.hub.SendToBridge(websocket.Envelope{Type: websocket.TypeActionRecipe, Payload: result.Parsed}); err != nil {
-			log.Printf("[Pipeline] command %q: failed to dispatch action recipe to bridge: %v", userText, err)
-			p.sendLog("error", fmt.Sprintf("failed to dispatch action recipe to the ROS 2 bridge: %v", err))
-			return
+		if p.bridge != nil {
+			execCtx, execCancel := context.WithTimeout(ctx, defaultExecutionTimeout)
+			defer execCancel()
+
+			if err := p.bridge.ExecuteRecipe(execCtx, result.Parsed); err != nil {
+				log.Printf("[Pipeline] command %q: robot recipe execution failed: %v", userText, err)
+				p.sendLog("error", fmt.Sprintf("robot recipe execution failed: %v", err))
+				return
+			}
+			p.hub.SendToClient(websocket.Envelope{Type: websocket.TypeActionRecipe, Payload: result.Parsed})
+			p.sendLog("info", fmt.Sprintf("recipe %q executed successfully by robot", recipeName(result.Doc)))
+		} else {
+			p.hub.SendToClient(websocket.Envelope{Type: websocket.TypeActionRecipe, Payload: result.Parsed})
 		}
-		p.hub.SendToClient(websocket.Envelope{Type: websocket.TypeActionRecipe, Payload: result.Parsed})
 	} else {
 		p.hub.SendToClient(websocket.Envelope{Type: websocket.TypeLogEvent, Payload: result.Parsed})
 	}

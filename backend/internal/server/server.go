@@ -4,6 +4,7 @@ import (
 	"context"
 	"embodied-ai-proxy/backend/internal/api"
 	"embodied-ai-proxy/backend/internal/pipeline"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	sharedconfig "embodied-ai-proxy/shared/config"
@@ -32,6 +33,7 @@ type ApplicationArgs struct {
 type AppServer struct {
 	args ApplicationArgs
 	mux  *http.ServeMux
+	rb   *rosbridge.Client
 }
 
 func New(args ApplicationArgs) (*AppServer, error) {
@@ -78,14 +80,14 @@ func (server *AppServer) initialize() error {
 	}
 
 	hub := websocket.NewHub()
-	p := pipeline.New(hub, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
+	rb := rosbridge.NewClient(appConfig.Server.RosbridgeURL, hub)
+	server.rb = rb
+
+	p := pipeline.New(hub, rb, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
 	hub.SetPromptHandler(p)
-	hub.SetStatusHandler(p)
 
 	log.Printf("[Server] Registering route: GET /ws/client")
 	server.mux.HandleFunc("/ws/client", hub.ServeClient)
-	log.Printf("[Server] Registering route: GET /ws/bridge")
-	server.mux.HandleFunc("/ws/bridge", hub.ServeBridge)
 	log.Printf("[Server] Registering route: POST /api/prompt")
 	server.mux.HandleFunc("/api/prompt", api.PromptHandler(p))
 	log.Printf("[Server] Registering route: GET /api/info")
@@ -110,5 +112,6 @@ func (server *AppServer) initialize() error {
 //}
 
 func (server *AppServer) Start(ctx context.Context) error {
+	server.rb.Start(ctx)
 	return httpserver.Run(ctx, "[Server]", fmt.Sprintf(":%d", server.args.HTTPPort), server.mux)
 }

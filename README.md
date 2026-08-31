@@ -124,7 +124,7 @@ source /path/to/your/workspace/ros2_kortex_ws/install/setup.bash
 ros2 launch kinova_interface robot.launch.py
 ```
 
-### 2. Start the ROS2 Bridge Client + Rosbridge
+### 2. Start the ROS2 Rosbridge Server
 ```bash
 source /opt/ros/humble/setup.bash
 source /path/to/your/workspace/ros2_kortex_ws/install/setup.bash
@@ -245,26 +245,24 @@ Structured JSON Action Recipe
             ↓
 Schema Validation Layer (Go Backend, data/config/json_schema.json)
             ↓
-WebSocket Broadcast (action_recipe -> /ws/bridge and /ws/client)
+Direct ROS2 Rosbridge Client (Go Backend -> ws://localhost:9090 /execute_recipe)
             ↓
-ROS2 Bridge Client -> rosbridge (:9090) -> ROS2 Middleware Execution Layer
-            ↓
-Robot / Simulation (Kinova Gen3 Lite)
+ROS2 Middleware Execution Layer (Kinova Gen3 Lite)
 ```
 
 ### Components
 
 1. **Go Backend** (`backend/`):
-   - Owns application state, workspace object registry, and WebSocket hub (`/ws/client`, `/ws/bridge`).
+   - Owns application state, workspace object registry, and WebSocket client hub (`/ws/client`).
+   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying workspace objects (`/get_robot_parameters`), listening to telemetry (`/system/status`), and executing action recipes (`/execute_recipe`).
    - Uses `internal/pipeline` to build prompts, query the LLM proxy, validate output against `data/config/json_schema.json`, and dispatch action recipes.
    - Exposes `GET /api/info` (live stats, configuration, prompt) and `POST /api/prompt` (synchronous evaluation API).
 2. **Go LLM Proxy** (`llm-proxy/`):
    - Standalone microservice abstracting provider APIs behind `POST /generate` with configurable timeouts and retries.
 3. **Go Terminal UI** (`tui/`):
    - Interactive Bubble Tea / Lip Gloss terminal interface connecting to the backend over WebSocket (`/ws/client`).
-4. **Python ROS2 Bridge Client** (`ros2_bridge_ws/`):
-   - Connects to the Go backend as a WebSocket client (`/ws/bridge`) and to `rosbridge_websocket` (`ws://localhost:9090`).
-   - Re-reports detected workspace objects and dispatches verified recipes to the robot middleware.
+4. **ROS2 Bridge Workspace** (`ros2_bridge_ws/`):
+   - Standard ROS2 package launching `rosbridge_server` WebSocket endpoint (`ws://localhost:9090`).
 5. **Evaluation Suite** (`evaluate_proxy.py` + `tests/*.yaml`):
    - Batch test runner that queries `POST /api/prompt` directly against YAML-defined test cases without needing a live robot.
 
@@ -290,8 +288,9 @@ embodied-ai-proxy/
 │   └── internal/
 │       ├── api/                     # REST handlers (GET /api/info, POST /api/prompt)
 │       ├── pipeline/                # Prompt synthesis, LLM dispatch, schema validation
+│       ├── rosbridge/               # Direct ROS 2 rosbridge WebSocket client
 │       ├── validator/               # jsonschema/v5 validator engine
-│       ├── websocket/               # Hub for /ws/client and /ws/bridge
+│       ├── websocket/               # Hub for /ws/client
 │       └── server/                  # Server bootstrap & routing
 │
 ├── llm-proxy/                       # Go LLM Proxy Gateway
@@ -314,7 +313,7 @@ embodied-ai-proxy/
 │   └── httpserver/                  # Graceful shutdown HTTP server
 │
 ├── ros2_bridge_ws/                  # ROS 2 Humble Workspace
-│   └── src/custom_bridge_pkg/       # ROS 2 package containing bridge_client node & launch file
+│   └── src/custom_bridge_pkg/       # ROS 2 package launching rosbridge_server
 │
 └── tests/                           # YAML test suites for evaluate_proxy.py
     ├── basic_tests.yaml
