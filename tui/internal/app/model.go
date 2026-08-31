@@ -144,11 +144,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bridgeConnected = bc
 			}
 			return m, waitForWSMsg(m.ws.MsgChan())
+
+		case client.TypeActionRecipe:
+			latency := time.Since(m.promptSentAt)
+			m.inFlight = false
+			m.appendEntry("", formatActionRecipe(msg.Payload, m.verbosity, latency))
+			return m, waitForWSMsg(m.ws.MsgChan())
+
+		case client.TypeLogEvent:
+			m.appendEntry("", formatLogEvent(msg.Payload))
+			if isErrorLevel(msg.Payload) {
+				m.inFlight = false
+			}
+			return m, waitForWSMsg(m.ws.MsgChan())
+
+		default:
+			m.inFlight = false
+			m.appendEntry("", formatEnvelope(msg))
+			return m, waitForWSMsg(m.ws.MsgChan())
 		}
-		m.inFlight = false
-		m.entries = append(m.entries, formatEnvelope(msg))
-		m.refreshViewport()
-		return m, waitForWSMsg(m.ws.MsgChan())
 	}
 
 	var cmd tea.Cmd
@@ -169,12 +183,11 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.historyDraft = ""
 
 	if err := m.ws.SendPrompt(text); err != nil {
-		m.entries = append(m.entries, errorStyle.Render("error: "+err.Error()))
-		m.refreshViewport()
+		m.appendEntry(errTag, err.Error())
 		return m, nil
 	}
 
-	m.entries = append(m.entries, promptLabel+text)
+	m.appendEntry(userTag, text)
 	m.refreshViewport()
 	m.input.SetValue("")
 	m.inFlight = true
@@ -247,7 +260,7 @@ func (m Model) refreshViewport() Model {
 // appendEntry appends a tagged line and refreshes the viewport in one step.
 func (m *Model) appendEntry(tag, text string) {
 	m.entries = append(m.entries, tag+text)
-	m.refreshViewport()
+	*m = m.refreshViewport()
 }
 
 // decodeBridgeConnected extracts the optional bridge_connected field from a
@@ -273,11 +286,11 @@ func formatEnvelope(env client.Envelope) string {
 
 // formatActionRecipe renders an action_recipe envelope: a validated recipe
 // and its steps on success, or the schema/parsing error otherwise, per
-// data/config/json_schema.json's success/error document shapes.
+// data/config/json_schema.json's success/error document shapes. Detail
 // beyond the base status line is gated by verbosity:
 //
 //	L1 - status/steps or error only
-//	L2 - adds RawOutput, when present
+//	L2 - adds step parameters (or RawOutput on failure) plus the raw JSON payload
 //	L3 - adds latency/step-count metadata
 func formatActionRecipe(payload json.RawMessage, verbosity int, latency time.Duration) string {
 	var recipe ActionRecipeMsg
@@ -297,6 +310,10 @@ func formatActionRecipe(payload json.RawMessage, verbosity int, latency time.Dur
 			b.WriteByte('\n')
 			b.WriteString(recipe.Message)
 		}
+		if verbosity >= 2 && recipe.RawOutput != "" {
+			b.WriteString("\n--- RAW OUTPUT ---\n")
+			b.WriteString(recipe.RawOutput)
+		}
 	} else {
 		b.WriteString(okTag)
 		b.WriteString("Validated Robot Recipe")
@@ -309,12 +326,19 @@ func formatActionRecipe(payload json.RawMessage, verbosity int, latency time.Dur
 			if step.Description != "" {
 				b.WriteString(" - " + step.Description)
 			}
+			if verbosity >= 2 && len(step.Parameters) > 0 {
+				params, _ := json.Marshal(step.Parameters)
+				b.WriteString(fmt.Sprintf("\n     params: %s", params))
+			}
 		}
 	}
 
-	if verbosity >= 2 && recipe.RawOutput != "" {
-		b.WriteString("\n--- RAW OUTPUT ---\n")
-		b.WriteString(recipe.RawOutput)
+	if verbosity >= 2 {
+		var pretty bytes.Buffer
+		if err := json.Indent(&pretty, payload, "", "  "); err == nil {
+			b.WriteString("\n--- RAW JSON ---\n")
+			b.WriteString(pretty.String())
+		}
 	}
 
 	if verbosity >= 3 {
@@ -337,6 +361,14 @@ func formatLogEvent(payload json.RawMessage) string {
 		tag = errTag
 	}
 	return tag + evt.Message
+}
+
+func isErrorLevel(payload json.RawMessage) bool {
+	var evt LogEventMsg
+	if err := json.Unmarshal(payload, &evt); err != nil {
+		return false
+	}
+	return strings.EqualFold(evt.Level, "error")
 }
 
 func contentWidth(termWidth int) int {

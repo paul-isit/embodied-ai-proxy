@@ -8,7 +8,7 @@
     "llm_config": {
       "provider": "ollama",
       "model": "gemma3:1b",
-      "base_url": "http://192.168.0.16:11434/api/generate",
+      "base_url": "http://localhost:11434/api/generate",
       "api_key": "",
       "max_tokens": 1024,
       "temperature": 0.1,
