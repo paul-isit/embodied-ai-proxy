@@ -50,6 +50,8 @@ type Model struct {
 	bridgeConnected *bool
 	inFlight        bool
 
+	availableObjects []string
+
 	history      []string
 	historyIndex int
 	historyDraft string
@@ -138,15 +140,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForWSMsg(m.ws.MsgChan())
 
 	case client.Envelope:
-<<<<<<< HEAD
 		switch msg.Type {
 		case client.TypeStatusUpdate:
-			if bc := decodeBridgeConnected(msg.Payload); bc != nil {
-=======
-		if msg.Type == client.TypeStatusUpdate {
-			bc, objList := decodeStatusUpdate(msg.Payload)
+			bc, objList := decodeBridgeConnected(msg.Payload)
 			if bc != nil {
->>>>>>> d58c9d7d9cf1c7694edca5bfea21d7414de9822b
 				m.bridgeConnected = bc
 				if !*bc {
 					m.availableObjects = nil
@@ -200,7 +197,6 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	}
 
 	m.appendEntry(userTag, text)
-	m.refreshViewport()
 	m.input.SetValue("")
 	m.inFlight = true
 	m.promptSentAt = time.Now()
@@ -269,7 +265,6 @@ func (m Model) refreshViewport() Model {
 	return m
 }
 
-<<<<<<< HEAD
 // appendEntry appends a tagged line and refreshes the viewport in one step.
 func (m *Model) appendEntry(tag, text string) {
 	m.entries = append(m.entries, tag+text)
@@ -278,12 +273,7 @@ func (m *Model) appendEntry(tag, text string) {
 
 // decodeBridgeConnected extracts the optional bridge_connected field from a
 // status_update payload, if present.
-func decodeBridgeConnected(payload json.RawMessage) *bool {
-=======
-// decodeStatusUpdate extracts the optional bridge_connected and object_list fields from a
-// status_update payload.
-func decodeStatusUpdate(payload json.RawMessage) (*bool, []string) {
->>>>>>> d58c9d7d9cf1c7694edca5bfea21d7414de9822b
+func decodeBridgeConnected(payload json.RawMessage) (*bool, []string) {
 	var v struct {
 		BridgeConnected *bool    `json:"bridge_connected"`
 		ObjectList      []string `json:"object_list"`
