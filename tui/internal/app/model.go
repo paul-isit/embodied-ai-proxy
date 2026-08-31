@@ -147,9 +147,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyF4:
 			m.pendingInfoUse = "llm"
 			return m, fetchSystemInfo(m.api)
-		case tea.KeyF5:
-			m.pendingInfoUse = "copy"
-			return m, fetchSystemInfo(m.api)
 		}
 
 	case client.Connected:
@@ -402,12 +399,6 @@ func formatSystemInfo(msg SystemInfoMsg, use string) string {
 			info.LLM.Provider, info.LLM.Model, info.LLM.MaxTokens, info.LLM.Temperature,
 		)
 
-	case "copy":
-		if info.SystemPrompt == "" {
-			return errTag + "system prompt unavailable"
-		}
-		return sysTag + "System Prompt:\n" + info.SystemPrompt
-
 	default: // "system"
 		return sysTag + fmt.Sprintf(
 			"System Operational Status\n  Bridge: %v\n  Clients Connected: %d\n  Server Port: %d\n  Proxy URL: %s",
@@ -475,7 +466,7 @@ func (m Model) View() string {
 	}
 
 	b.WriteString(m.input.View() + "\n")
-	b.WriteString(mutedStyle.Render("(enter to submit • F2 verbosity • F3 sys info • F4 llm info • F5 show prompt • pgup/pgdn or mouse wheel to scroll • ctrl+c to quit)"))
+	b.WriteString(mutedStyle.Render("(enter to submit • F2 verbosity • F3 sys info • F4 llm info • pgup/pgdn or mouse wheel to scroll • ctrl+c to quit)"))
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
