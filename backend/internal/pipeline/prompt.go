@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	placeholderSchema  = "{schema_template}"
-	placeholderObjects = "{available_objects}"
-	placeholderCommand = "{user_command}"
+	placeholderSchema    = "{schema_template}"
+	placeholderObjects   = "{available_objects}"
+	placeholderMovements = "{available_movements}"
+	placeholderCommand   = "{user_command}"
 )
 
 // codeFence is a literal ``` sequence. Go raw strings (backtick-delimited)
@@ -26,7 +27,7 @@ You are an advanced robotic assistant that translates natural language commands 
 1. Respond with ONLY valid JSON. No conversational filler, notes, apologies, or introductions.
 2. Do not wrap the JSON in markdown code blocks (like ` + codeFence + `json ... ` + codeFence + `) unless the content inside is strictly the JSON itself.
 3. Your output MUST conform exactly to the Recipe Schema Template provided below, including every required field.
-4. You will be given a user command and the list of objects that currently exist in the workspace (Available Objects).
+4. You will be given a user command, the list of objects that currently exist in the workspace (Available Objects), and the list of relative movements available to you (Available Movements).
 
 ## Workspace
 A tabletop environment with objects placed within arm reach, inside fixed X/Y/Z boundaries. Objects can be picked up, moved, and placed. A routine starts from, and should typically return to, the arm's home pose.
@@ -34,7 +35,7 @@ A tabletop environment with objects placed within arm reach, inside fixed X/Y/Z 
 ## Available Actions
 - 'home': Return the arm to its safe starting pose. No parameters.
 - 'move_arm': Move the arm to a named object's location. Parameters: 'target' (string) — must exactly match one of the Available Objects.
-- 'relative_move': Move the arm by a named displacement from its current position, without needing a specific target. Parameters: 'vector' (string) — a named relative displacement understood by the workspace (for example 'move_upwards').
+- 'relative_move': Move the arm by a named displacement from its current position, without needing a specific target. Parameters: 'vector' (string) — must exactly match one of the Available Movements.
 - 'gripper': Set the gripper to an exact position. Parameters: 'position' (float, 0.0-1.0; 1.0 = fully closed, 0.0 = fully open).
 - 'pickup': Grasp a named object in one step — approach it, then close the gripper around it. Parameters: 'target' (string, required) — the object to grasp. Optionally: 'pre_offset' (float, meters) — how far above the target to approach from before making contact, useful for a more cautious approach around clutter or fragile setups; 'open_position' / 'close_position' (floats, 0.0-1.0) — override how wide the gripper opens before approaching and how far it closes once gripping, useful for objects that need a gentler or firmer grip than usual.
 - 'dropoff': Place a held object at a named destination in one step — approach it, then open the gripper to release. Parameters: 'destination' (string, required) — where to place the object. Optionally: 'target' (string) — the object being placed, so its known location is updated; 'place_offset' (float, meters) — how far above the destination to release from, raise it for a gentler placement or to clear obstacles at the destination; 'open_position' (float, 0.0-1.0) — override how far the gripper opens on release.
@@ -55,7 +56,7 @@ Use the optional parameters above to reflect the situation described in the comm
 ## Object and Movement Names
 - Object names must match Available Objects exactly, case-sensitive — if the user says "the apple" and the list has 'green_apple', use 'green_apple' verbatim.
 - Never invent an object name that isn't in the Available Objects list.
-- For 'relative_move', use only established movement names for this workspace (such as 'move_upwards') rather than inventing new directional vectors.
+- For 'relative_move', 'vector' must match one of the Available Movements exactly, case-sensitive — never invent a movement name that isn't in that list.
 - If the command refers to an object that doesn't exist, or asks for something that violates these rules, stop and return the Error state instead of guessing.
 
 ## Examples
@@ -64,6 +65,8 @@ These illustrate structure and reasoning, not literal answers — build a new ro
 ### Example 1 — Manual sequence, no objects involved
 Command: "Open the hand, clear the area by raising up, then go home."
 Available Objects: []
+Available Movements:
+- move_upwards
 Output:
 ` + codeFence + `json
 {
@@ -82,6 +85,8 @@ Command: "Move over to the cylinder and look at it from slightly above."
 Available Objects:
 - green_cylinder
 - red_cube
+Available Movements:
+- move_upwards
 Output:
 ` + codeFence + `json
 {
@@ -135,11 +140,14 @@ This is the schema your output must conform to exactly.
 ## Available Objects
 Available Objects: '{available_objects}'
 
+## Available Movements
+Available Movements: '{available_movements}'
+
 ## User Command
 User Command: '{user_command}'
 `
 
-func (p *Pipeline) buildPrompt(userText string, objects []string) string {
+func (p *Pipeline) buildPrompt(userText string, objects, movements []string) string {
 	objectsStr := "No objects currently mapped."
 	if len(objects) > 0 {
 		lines := make([]string, len(objects))
@@ -149,9 +157,19 @@ func (p *Pipeline) buildPrompt(userText string, objects []string) string {
 		objectsStr = strings.Join(lines, "\n")
 	}
 
+	movementsStr := "No named relative movements are currently mapped."
+	if len(movements) > 0 {
+		lines := make([]string, len(movements))
+		for i, mv := range movements {
+			lines[i] = "- " + mv
+		}
+		movementsStr = strings.Join(lines, "\n")
+	}
+
 	result := p.systemPrompt
 	result = strings.ReplaceAll(result, placeholderSchema, p.schemaBlock)
 	result = strings.ReplaceAll(result, placeholderObjects, objectsStr)
+	result = strings.ReplaceAll(result, placeholderMovements, movementsStr)
 	result = strings.ReplaceAll(result, placeholderCommand, userText)
 	return result
 }
