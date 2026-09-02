@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"embodied-ai-proxy/tui/internal/client"
 	"encoding/json"
 	"fmt"
@@ -42,6 +43,7 @@ type Model struct {
 	Ready        bool
 
 	ws       *client.WSClient
+	api      *client.APIClient
 	input    textinput.Model
 	viewport viewport.Model
 
@@ -56,8 +58,9 @@ type Model struct {
 	historyIndex int
 	historyDraft string
 
-	verbosity    int
-	promptSentAt time.Time
+	verbosity      int
+	promptSentAt   time.Time
+	pendingInfoUse string
 }
 
 // NewModel creates a new initial Model instance
@@ -69,6 +72,7 @@ func NewModel(appServerURL string) Model {
 	return Model{
 		AppServerURL: appServerURL,
 		ws:           client.NewWSClient(appServerURL),
+		api:          client.NewAPIClient(appServerURL),
 		input:        ti,
 		viewport:     viewport.New(0, 0),
 		connMsg:      "connecting...",
@@ -84,6 +88,18 @@ func NewModel(appServerURL string) Model {
 func waitForWSMsg(ch <-chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return <-ch
+	}
+}
+
+// fetchSystemInfo returns a tea.Cmd that calls GET /api/info in the
+// background, since APIClient.FetchInfo blocks on HTTP and must not run
+// directly inside Update.
+func fetchSystemInfo(api *client.APIClient) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		info, err := api.FetchInfo(ctx)
+		return SystemInfoMsg{Info: info, Err: err}
 	}
 }
 
@@ -144,6 +160,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.connMsg = "disconnected - reconnecting..."
 		}
 		return m, waitForWSMsg(m.ws.MsgChan())
+
+	case SystemInfoMsg:
+		m.appendEntry("", formatSystemInfo(msg, m.pendingInfoUse))
+		m.pendingInfoUse = ""
+		return m, nil
 
 	case client.Envelope:
 		switch msg.Type {
@@ -445,7 +466,7 @@ func (m Model) View() string {
 	}
 
 	b.WriteString(m.input.View() + "\n")
-	b.WriteString(mutedStyle.Render("(enter to submit • F2 verbosity • F3 sys info • F4 llm info • pgup/pgdn or mouse wheel to scroll • ctrl+c to quit)"))
+	b.WriteString(mutedStyle.Render("(enter to submit • F2 verbosity • F3 sys info • F4 llm info  • pgup/pgdn or mouse wheel to scroll • ctrl+c to quit)"))
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
