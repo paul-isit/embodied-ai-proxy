@@ -1,65 +1,201 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "You must output ONE of the following two structural states based on the context validation.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Action Recipe",
+  "description": "Output must be exactly one of two states: SUCCESS (an ordered recipe of steps) or ERROR (why no recipe could be produced).",
+  "$defs": {
+    "gripperPosition": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "0.0 = fully open, 1.0 = fully closed."
+    },
+    "offset": {
+      "type": "number",
+      "minimum": 0.0,
+      "description": "Distance in meters to stand off along Z."
+    },
+    "objectName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must exactly match one of the names in Available Objects."
+    },
+    "vectorName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must exactly match one of the known relative movement names."
+    }
+  },
   "oneOf": [
     {
       "type": "object",
-      "description": "State 1: SUCCESS. Use this when all objects exist and a routine can be safely constructed.",
+      "description": "SUCCESS: all referenced objects exist and the routine can be safely constructed.",
       "properties": {
-        "status": {
-          "type": "string",
-          "const": "success"
-        },
+        "status": { "const": "success" },
         "recipe_name": {
           "type": "string",
+          "minLength": 1,
           "description": "Short, descriptive title of the routine"
         },
         "steps": {
           "type": "array",
+          "minItems": 1,
           "items": {
-            "type": "object",
-            "properties": {
-              "step_id": {
-                "type": "integer",
-                "description": "1-indexed sequential step number"
-              },
-              "action": {
-                "type": "string",
-                "enum": ["home", "move_arm", "relative_move", "gripper"]
-              },
-              "description": {
-                "type": "string",
-                "description": "Brief text explanation of what this specific step does"
-              },
-              "parameters": {
+            "oneOf": [
+              {
                 "type": "object",
-                "description": "Arguments specific to the chosen action. If 'home': {}. If 'move_arm': {'target': string (must match an Available Object)}. If 'relative_move': {'vector': 'move_upwards' | 'move_downwards' | 'move_left' | 'move_right'}. If 'gripper': {'position': float between 0.0 and 1.0}."
+                "description": "Move the arm to its safe starting pose. Takes no parameters.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "home" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": { "type": "object", "additionalProperties": false }
+                },
+                "required": ["step_id", "action", "description"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Move the arm to a named object's coordinates.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "move_arm" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": { "$ref": "#/$defs/objectName" }
+                    },
+                    "required": ["target"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Move the arm relative to its current position by a named displacement vector.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "relative_move" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "vector": { "$ref": "#/$defs/vectorName" }
+                    },
+                    "required": ["vector"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Open or close the gripper to an exact position.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "gripper" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "position": { "$ref": "#/$defs/gripperPosition" }
+                    },
+                    "required": ["position"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Composite: open the gripper, move to the target, close the gripper, and mark it grasped.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "pickup" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": { "$ref": "#/$defs/objectName" },
+                      "pre_offset": {
+                        "allOf": [{ "$ref": "#/$defs/offset" }],
+                        "description": "Height to approach from above the target before descending to grasp it. Defaults to 0.0 (approaches directly) if omitted."
+                      },
+                      "open_position": {
+                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
+                        "description": "Gripper position to open to before approaching. Defaults to 0.0 (open) if omitted."
+                      },
+                      "close_position": {
+                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
+                        "description": "Gripper position to close to once at the target. Defaults to 0.8 if omitted."
+                      }
+                    },
+                    "required": ["target"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Composite: move to the destination, release the gripper, and mark the held object placed.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "dropoff" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "The object currently held. Optional; when given, its stored pose is updated to the destination and it is released from the gripper attachment."
+                      },
+                      "destination": { "$ref": "#/$defs/objectName" },
+                      "place_offset": {
+                        "allOf": [{ "$ref": "#/$defs/offset" }],
+                        "description": "Height added above the destination before releasing. Defaults to 0.1 if omitted."
+                      },
+                      "open_position": {
+                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
+                        "description": "Gripper position to release to. Defaults to 0.0 (open) if omitted."
+                      }
+                    },
+                    "required": ["destination"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
               }
-            },
-            "required": ["step_id", "action", "description", "parameters"]
+            ]
           }
         }
       },
-      "required": ["status", "recipe_name", "steps"]
+      "required": ["status", "recipe_name", "steps"],
+      "additionalProperties": false
     },
     {
       "type": "object",
-      "description": "State 2: ERROR. Use this if an object is missing, ambiguous, or the command violates workspace constraints.",
+      "description": "ERROR: an object is missing, ambiguous, or the command violates workspace constraints.",
       "properties": {
-        "status": {
-          "type": "string",
-          "const": "error"
-        },
+        "status": { "const": "error" },
         "error_type": {
           "type": "string",
           "enum": ["missing_object", "invalid_command", "safety_violation"]
         },
         "message": {
           "type": "string",
+          "minLength": 1,
           "description": "Detailed natural language explanation of why the command failed execution."
         }
       },
-      "required": ["status", "error_type", "message"]
+      "required": ["status", "error_type", "message"],
+      "additionalProperties": false
     }
   ]
 }

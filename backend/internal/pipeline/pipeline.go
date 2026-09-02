@@ -66,6 +66,7 @@ type generateResponsePayload struct {
 }
 
 func (p *Pipeline) callLLMProxy(ctx context.Context, fullPrompt string) (string, error) {
+	log.Printf("[Pipeline] Full prompt:\n----- BEGIN PROMPT -----\n%s\n----- END PROMPT -----", fullPrompt)
 	body, err := json.Marshal(generateRequestPayload{Prompt: fullPrompt})
 	if err != nil {
 		return "", fmt.Errorf("encode request: %w", err)
