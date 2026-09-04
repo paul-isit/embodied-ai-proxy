@@ -25,6 +25,11 @@ var (
 	userTag = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BB9AF7")).Render("[USER] ")
 	errTag  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F7768E")).Render("[ERR] ")
 	okTag   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("[OK] ")
+
+	nodeReadyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ECE6A"))
+	nodeBusyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68"))
+	nodeFaultStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F7768E"))
+	sidebarTitle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7AA2F7"))
 )
 
 // fixedLines is the number of rows the layout always reserves outside the
@@ -53,6 +58,8 @@ type Model struct {
 	inFlight        bool
 
 	availableObjects []string
+	telemetry        *MiddlewareStatus
+	showSidebar       bool
 
 	history      []string
 	historyIndex int
@@ -78,6 +85,7 @@ func NewModel(appServerURL string) Model {
 		connMsg:      "connecting...",
 		historyIndex: -1,
 		verbosity:    1,
+		showSidebar:   true,
 	}
 }
 
@@ -116,10 +124,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.Ready = true
-		m.viewport.Width = contentWidth(m.Width)
+		if m.showSidebar && m.Width >= minWidthForSidebar {
+			m.viewport.Width = contentWidth(m.Width) - sidebarWidth
+		} else {
+			m.viewport.Width = contentWidth(m.Width)
+		}
 		m.viewport.Height = max(3, m.Height-fixedLines)
 		m = m.refreshViewport()
-		return m, nil
+		return m, tea.ClearScreen
 
 	case tea.MouseMsg:
 		var cmd tea.Cmd
@@ -139,6 +151,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
+		case tea.KeyF1:
+			m.appendEntry(sysTag, "THIS IS THE HELP MESSAGE \nKey functions:\n   F1 - View help message\n   F2 - Cycle verbosity\n   F3 - Fetch system info\n   F4 - Fetch LLM info\n   F5 - Toggle sidebar")
+			return m, nil
 		case tea.KeyF2:
 			return m.cycleVerbosity()
 		case tea.KeyF3:
@@ -147,6 +162,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyF4:
 			m.pendingInfoUse = "llm"
 			return m, fetchSystemInfo(m.api)
+		case tea.KeyF5:
+			m.showSidebar = !m.showSidebar
+			if m.showSidebar && m.Width >= minWidthForSidebar {
+				m.viewport.Width = contentWidth(m.Width) - sidebarWidth
+			} else {
+				m.viewport.Width = contentWidth(m.Width)
+			}
+			m = m.refreshViewport()
+			return m, tea.ClearScreen
 		}
 
 	case client.Connected:
@@ -169,6 +193,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case client.Envelope:
 		switch msg.Type {
 		case client.TypeStatusUpdate:
+
 			bc, objList := decodeBridgeConnected(msg.Payload)
 			if bc != nil {
 				m.bridgeConnected = bc
@@ -178,6 +203,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if objList != nil {
 				m.availableObjects = objList
+			}
+			if ms := decodeMiddlewareStatus(msg.Payload); ms != nil {
+				m.telemetry = ms
 			}
 			return m, waitForWSMsg(m.ws.MsgChan())
 
@@ -309,6 +337,18 @@ func decodeBridgeConnected(payload json.RawMessage) (*bool, []string) {
 		return nil, nil
 	}
 	return v.BridgeConnected, v.ObjectList
+}
+
+// decodeMiddlewareStatus extracts the optional middleware_status field from
+// a status_update payload, if present.
+func decodeMiddlewareStatus(payload json.RawMessage) *MiddlewareStatus {
+	var v struct {
+		MiddlewareStatus *MiddlewareStatus `json:"middleware_status"`
+	}
+	if err := json.Unmarshal(payload, &v); err != nil {
+		return nil
+	}
+	return v.MiddlewareStatus
 }
 
 // formatEnvelope renders a raw backend envelope as plain text
@@ -445,28 +485,114 @@ func bridgeStatusText(connected *bool) string {
 	}
 }
 
+func stateLabel(state int) string {
+	switch state {
+	case StateBusy:
+		return "BUSY"
+	case StateFault:
+		return "FAULT"
+	default:
+		return "READY"
+	}
+}
+
+func stateStyle(state int) lipgloss.Style {
+	switch state {
+	case StateBusy:
+		return nodeBusyStyle
+	case StateFault:
+		return nodeFaultStyle
+	default:
+		return nodeReadyStyle
+	}
+}
+
+// renderSidebar builds the telemetry panel shown alongside the main log.
+// width is the sidebar's total rendered width, height its total rendered
+// height, both already accounting for border/padding via the returned style.
+func renderSidebar(telemetry *MiddlewareStatus, width, height int) string {
+	innerWidth := width - 4
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	title := sidebarTitle.Width(innerWidth).Render("--- MIDDLEWARE STATUS ---")
+
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteByte('\n')
+
+	if telemetry == nil {
+		b.WriteString(mutedStyle.Width(innerWidth).Render("No telemetry yet"))
+	} else {
+		overallStyle := stateStyle(telemetry.SummaryState).Width(innerWidth)
+		b.WriteString(overallStyle.Render("System: " + stateLabel(telemetry.SummaryState)))
+		b.WriteByte('\n')
+
+		for _, n := range telemetry.IndividualStates {
+			b.WriteByte('\n')
+			lineStyle := stateStyle(n.State).Width(innerWidth)
+			line := fmt.Sprintf("• %s: %s", n.NodeName, stateLabel(n.State))
+			b.WriteString(lineStyle.Render(line))
+			if n.StatusMessage != "" {
+				b.WriteByte('\n')
+				b.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
+			}
+		}
+	}
+
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Padding(0, 1).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#565F89")).
+		Render(b.String())
+}
+
+
+const sidebarWidth = 34
+const minWidthForSidebar = 140 //sidebar will not render if terminal width is less than this
+
 // View renders the TUI
 func (m Model) View() string {
 	if !m.Ready {
 		return "Initializing TUI..."
 	}
 
-	var b strings.Builder
+
+	var main strings.Builder
 	statusLine := fmt.Sprintf("Backend: %s [%s] | %s", m.AppServerURL, m.connMsg, bridgeStatusText(m.bridgeConnected))
-	b.WriteString(statusStyle.Render(statusLine))
+	main.WriteString(statusStyle.Render(statusLine))
 	if len(m.availableObjects) > 0 {
-		b.WriteString("\n" + mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
+		main.WriteString("\n" + mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
 	}
-	b.WriteString("\n" + m.viewport.View() + "\n")
+	main.WriteString("\n" + m.viewport.View() + "\n")
 
 	if m.inFlight {
-		b.WriteString(statusStyle.Render("waiting for response...") + "\n")
+		main.WriteString(statusStyle.Render("waiting for response...") + "\n")
 	} else {
-		b.WriteString("\n")
+		main.WriteString("\n")
 	}
 
-	b.WriteString(m.input.View() + "\n")
-	b.WriteString(mutedStyle.Render("(enter to submit • F2 verbosity • F3 sys info • F4 llm info • pgup/pgdn or mouse wheel to scroll • ctrl+c to quit)"))
+	main.WriteString(m.input.View() + "\n")
+	main.WriteString(mutedStyle.Render("(Enter to submit • F1 to view help • ctrl+c to quit)"))
 
-	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+	mainCol := lipgloss.NewStyle().Padding(1, 2).Render(main.String())
+
+	if !m.showSidebar {
+		return mainCol
+	}
+
+	if m.Width >= minWidthForSidebar {
+		sidebarHeight := max(3, m.Height-2)
+		sidebar := renderSidebar(m.telemetry, sidebarWidth, sidebarHeight)
+		return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
+	}
+
+	// Narrow terminal: stack the sidebar below the main column instead of
+	// squeezing it side-by-side.
+	stackedWidth := contentWidth(m.Width) + 4 // roughly match mainCol's rendered width
+	sidebar := renderSidebar(m.telemetry, stackedWidth, 8)
+	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
 }
