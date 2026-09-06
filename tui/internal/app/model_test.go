@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -45,7 +46,7 @@ func TestWaitForWSMsgBlocksUntilDelivered(t *testing.T) {
 }
 
 func TestSubmitPromptIgnoresEmptyInput(t *testing.T) {
-	m := NewModel("http://localhost:8080")
+	m := NewModel("http://localhost:8080", "")
 	updated, cmd := m.submitPrompt()
 
 	nm := updated.(Model)
@@ -58,7 +59,7 @@ func TestSubmitPromptIgnoresEmptyInput(t *testing.T) {
 }
 
 func TestSubmitPromptSurfacesSendErrorWhenDisconnected(t *testing.T) {
-	m := NewModel("http://localhost:8080")
+	m := NewModel("http://localhost:8080", "")
 	m.input.SetValue("pick up the red block")
 
 	updated, _ := m.submitPrompt()
@@ -73,7 +74,7 @@ func TestSubmitPromptSurfacesSendErrorWhenDisconnected(t *testing.T) {
 }
 
 func TestSubmitPromptIgnoresWhileInFlight(t *testing.T) {
-	m := NewModel("http://localhost:8080")
+	m := NewModel("http://localhost:8080", "")
 	m.inFlight = true
 	m.input.SetValue("another command")
 
@@ -89,7 +90,7 @@ func TestSubmitPromptIgnoresWhileInFlight(t *testing.T) {
 }
 
 func TestStatusUpdateEnvelopeUpdatesHeaderNotFeed(t *testing.T) {
-	m := NewModel("http://localhost:8080")
+	m := NewModel("http://localhost:8080", "")
 	m.inFlight = true
 
 	updated, _ := m.Update(client.Envelope{
@@ -110,7 +111,7 @@ func TestStatusUpdateEnvelopeUpdatesHeaderNotFeed(t *testing.T) {
 }
 
 func TestActionRecipeEnvelopeAppendsToFeedAndClearsInFlight(t *testing.T) {
-	m := NewModel("http://localhost:8080")
+	m := NewModel("http://localhost:8080", "")
 	m.inFlight = true
 	m.viewport.Width = 80
 
@@ -123,13 +124,13 @@ func TestActionRecipeEnvelopeAppendsToFeedAndClearsInFlight(t *testing.T) {
 	if nm.inFlight {
 		t.Fatalf("expected inFlight to clear once a response arrives")
 	}
-	if len(nm.entries) != 1 || !strings.Contains(nm.entries[0], "action_recipe") {
-		t.Fatalf("expected the action_recipe envelope in the feed, got %v", nm.entries)
+	if len(nm.entries) != 1 || !strings.Contains(nm.entries[0], "Validated Robot Recipe") {
+		t.Fatalf("expected the validated recipe in the feed, got %v", nm.entries)
 	}
 }
 
 func TestStatusUpdateEnvelopeUpdatesObjectList(t *testing.T) {
-	m := NewModel("http://localhost:8080")
+	m := NewModel("http://localhost:8080", "")
 	updated, _ := m.Update(client.Envelope{
 		Type:    client.TypeStatusUpdate,
 		Payload: []byte(`{"object_list": ["red_cube", "green_apple"]}`),
@@ -144,5 +145,29 @@ func TestStatusUpdateEnvelopeUpdatesObjectList(t *testing.T) {
 	view := nm.View()
 	if !strings.Contains(view, "red_cube, green_apple") {
 		t.Fatalf("expected view to contain objects, got %s", view)
+	}
+}
+
+func TestSaveSessionWritesEntriesToFile(t *testing.T) {
+	dir := t.TempDir()
+	m := NewModel("http://localhost:8080", dir)
+	m.entries = []string{sysTag + "hello", errTag + "oops"}
+
+	path, err := m.saveSession()
+	if err != nil {
+		t.Fatalf("saveSession failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved session file: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "hello") || !strings.Contains(content, "oops") {
+		t.Fatalf("expected entries in saved file, got %s", content)
+	}
+	if strings.Contains(content, "\x1b[") {
+		t.Fatalf("expected ANSI codes to be stripped, got %s", content)
 	}
 }
