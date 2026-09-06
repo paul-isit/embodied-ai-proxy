@@ -713,9 +713,29 @@ func (m Model) View() string {
 	} else {
 		main.WriteByte('\n')
 	}
+	main.WriteByte('\n')
 
-	b.WriteString(m.input.View() + "\n")
-	b.WriteString(mutedStyle.Render("(enter to submit • F2 verbosity • F3 sys info • F4 llm info • pgup/pgdn or mouse wheel to scroll • ctrl+c to quit)"))
+	main.WriteString(inputBoxStyle.Width(dividerWidth).Render(m.input.View()))
+	main.WriteByte('\n')
 
-	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+	main.WriteString(mutedStyle.Render("(Enter to submit • F1 to view help • ctrl+c to quit)"))
+
+	mainCol := lipgloss.NewStyle().
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3B4261")).
+		Render(main.String())
+
+	if !m.showSidebar {
+		return mainCol
+	}
+
+	if m.Width >= minWidthForSidebar {
+		sidebar := renderSidebar(m.telemetry, sidebarWidth, m.Height)
+		return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
+	}
+
+	stackedWidth := contentWidth(m.Width) + 4
+	sidebar := renderSidebar(m.telemetry, stackedWidth, 8)
+	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
 }
