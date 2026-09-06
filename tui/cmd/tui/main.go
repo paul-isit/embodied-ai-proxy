@@ -44,7 +44,7 @@ func main() {
 	}
 	defer logFile.Close()
 
-	m := app.NewModel(*appServerURL)
+	m := app.NewModel(*appServerURL, *dataDir)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	if _, err := p.Run(); err != nil {

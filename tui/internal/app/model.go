@@ -6,14 +6,18 @@ import (
 	"embodied-ai-proxy/tui/internal/client"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
-
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	
 )
 
 var (
@@ -30,19 +34,26 @@ var (
 	nodeBusyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68"))
 	nodeFaultStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F7768E"))
 	sidebarTitle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7AA2F7"))
+
+	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#C0CAF5"))
+	dividerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B4261"))
+	connectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#9ECE6A"))
+	disconnStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F7768E"))
+	inputBoxStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#565F89")).Padding(0, 1)
 )
 
 // fixedLines is the number of rows the layout always reserves outside the
 // scrollable viewport: top+bottom padding, the header, the status/in-flight
 // line, the input line, and the footer hint - used to size the viewport
 // against the real terminal height.
-const fixedLines = 6
+const fixedLines = 11
 
 // Model is the MVP root Bubble Tea model: it connects to the backend over
 // WebSocket, accepts a single-line natural language prompt, and prints the
 // raw backend response in a scrollable viewport.
 type Model struct {
 	AppServerURL string
+	DataDir      string
 	Width        int
 	Height       int
 	Ready        bool
@@ -61,6 +72,8 @@ type Model struct {
 	telemetry        *MiddlewareStatus
 	showSidebar       bool
 
+	spin spinner.Model
+
 	history      []string
 	historyIndex int
 	historyDraft string
@@ -71,13 +84,18 @@ type Model struct {
 }
 
 // NewModel creates a new initial Model instance
-func NewModel(appServerURL string) Model {
+func NewModel(appServerURL, dataDir string) Model {
 	ti := textinput.New()
 	ti.Placeholder = "Type a command and press Enter..."
 	ti.Focus()
 
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = statusStyle
+
 	return Model{
 		AppServerURL: appServerURL,
+		DataDir:      dataDir,
 		ws:           client.NewWSClient(appServerURL),
 		api:          client.NewAPIClient(appServerURL),
 		input:        ti,
@@ -85,7 +103,8 @@ func NewModel(appServerURL string) Model {
 		connMsg:      "connecting...",
 		historyIndex: -1,
 		verbosity:    1,
-		showSidebar:   true,
+		showSidebar:  true,
+		spin:         sp,
 	}
 }
 
@@ -97,6 +116,16 @@ func waitForWSMsg(ch <-chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return <-ch
 	}
+}
+
+// elapsedTickMsg drives the live "(Ns)" counter shown next to the spinner
+// while a prompt is in flight.
+type elapsedTickMsg struct{}
+
+func elapsedTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return elapsedTickMsg{}
+	})
 }
 
 // fetchSystemInfo returns a tea.Cmd that calls GET /api/info in the
@@ -152,7 +181,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
 		case tea.KeyF1:
-			m.appendEntry(sysTag, "THIS IS THE HELP MESSAGE \nKey functions:\n   F1 - View help message\n   F2 - Cycle verbosity\n   F3 - Fetch system info\n   F4 - Fetch LLM info\n   F5 - Toggle sidebar")
+			m.appendEntry(sysTag, helpText(m.verbosity))
 			return m, nil
 		case tea.KeyF2:
 			return m.cycleVerbosity()
@@ -171,6 +200,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m = m.refreshViewport()
 			return m, tea.ClearScreen
+
+		case tea.KeyF6:
+			path, err := m.saveSession()
+			if err != nil {
+				m.appendEntry(errTag, "failed to save session: "+err.Error())
+			} else {
+				m.appendEntry(sysTag, "Session saved to "+path)
+			}
+			return m, nil
 		}
 
 	case client.Connected:
@@ -189,6 +227,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendEntry("", formatSystemInfo(msg, m.pendingInfoUse))
 		m.pendingInfoUse = ""
 		return m, nil
+
+	case spinner.TickMsg:
+	if !m.inFlight {
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.spin, cmd = m.spin.Update(msg)
+	return m, cmd
+
+	case elapsedTickMsg:
+		if !m.inFlight {
+			return m, nil
+		}
+		return m, elapsedTick()
 
 	case client.Envelope:
 		switch msg.Type {
@@ -255,7 +307,39 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.input.SetValue("")
 	m.inFlight = true
 	m.promptSentAt = time.Now()
-	return m, nil
+	return m, tea.Batch(m.spin.Tick, elapsedTick())
+}
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return ansiEscape.ReplaceAllString(s, "")
+}
+
+// saveSession writes the current session's entries to a timestamped plain
+// text file under DataDir/logs.
+func (m Model) saveSession() (string, error) {
+	dir := filepath.Join(m.DataDir, "logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create log directory: %w", err)
+	}
+
+	filename := fmt.Sprintf("session_%s.txt", time.Now().Format("20060102_150405"))
+	path := filepath.Join(dir, filename)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Session export - %s\n", time.Now().Format(time.RFC1123)))
+	b.WriteString(fmt.Sprintf("Backend: %s\n", m.AppServerURL))
+	b.WriteString(strings.Repeat("-", 60) + "\n\n")
+	for _, e := range m.entries {
+		b.WriteString(stripANSI(e))
+		b.WriteString("\n\n")
+	}
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return "", fmt.Errorf("write session file: %w", err)
+	}
+	return path, nil
 }
 
 // cycleVerbosity advances response detail level 1 (Filtered) -> 2 (Full
@@ -447,6 +531,33 @@ func formatSystemInfo(msg SystemInfoMsg, use string) string {
 	}
 }
 
+// helpText builds the F1 help message, listing every active keybinding
+// grouped by category.
+func helpText(verbosity int) string {
+	labels := map[int]string{1: "L1 - Filtered", 2: "L2 - Full Context", 3: "L3 - Debug"}
+	lines := []string{
+		"Key functions:",
+		"",
+		"  Navigation",
+		"    ↑ / ↓          Recall previous prompts",
+		"    PgUp / PgDn    Scroll log",
+		"    Home / End     Jump to top/bottom of log",
+		"",
+		"  Info & Display",
+		"    F1             View this help message",
+		"    F2             Cycle response detail (currently: " + labels[verbosity] + ")",
+		"    F3             Fetch system info",
+		"    F4             Fetch LLM info",
+		"    F5             Toggle telemetry sidebar",
+		"",
+		"  Session",
+		"    Enter          Submit prompt",
+		"    F6             Save session to a text file",
+		"    Ctrl+C         Quit",
+	}
+	return strings.Join(lines, "\n")
+}
+
 // formatLogEvent renders a log_event envelope, tagging it as an error or
 // system line depending on its reported level.
 func formatLogEvent(payload json.RawMessage) string {
@@ -471,7 +582,7 @@ func isErrorLevel(payload json.RawMessage) bool {
 }
 
 func contentWidth(termWidth int) int {
-	return max(1, termWidth-4)
+	return max(1, termWidth-6)
 }
 
 func bridgeStatusText(connected *bool) string {
@@ -483,6 +594,14 @@ func bridgeStatusText(connected *bool) string {
 	default:
 		return "bridge: disconnected"
 	}
+}
+
+// connStatusText renders the connection state word ("connected" / "disconnected...") 
+func connStatusText(connMsg string) string {
+	if connMsg == "connected" {
+		return connectedStyle.Render(connMsg)
+	}
+	return disconnStyle.Render(connMsg)
 }
 
 func stateLabel(state int) string {
@@ -511,43 +630,43 @@ func stateStyle(state int) lipgloss.Style {
 // width is the sidebar's total rendered width, height its total rendered
 // height, both already accounting for border/padding via the returned style.
 func renderSidebar(telemetry *MiddlewareStatus, width, height int) string {
-	innerWidth := width - 4
-	if innerWidth < 1 {
-		innerWidth = 1
-	}
+    innerWidth := width - 4
+    if innerWidth < 1 {
+        innerWidth = 1
+    }
 
-	title := sidebarTitle.Width(innerWidth).Render("--- MIDDLEWARE STATUS ---")
+    title := sidebarTitle.Width(innerWidth).Render("--- MIDDLEWARE STATUS ---")
 
-	var b strings.Builder
-	b.WriteString(title)
-	b.WriteByte('\n')
+    var b strings.Builder
+    b.WriteString(title)
+    b.WriteByte('\n')
 
-	if telemetry == nil {
-		b.WriteString(mutedStyle.Width(innerWidth).Render("No telemetry yet"))
-	} else {
-		overallStyle := stateStyle(telemetry.SummaryState).Width(innerWidth)
-		b.WriteString(overallStyle.Render("System: " + stateLabel(telemetry.SummaryState)))
-		b.WriteByte('\n')
+    if telemetry == nil {
+        b.WriteString(mutedStyle.Width(innerWidth).Render("No telemetry yet"))
+    } else {
+        overallStyle := stateStyle(telemetry.SummaryState).Width(innerWidth)
+        b.WriteString(overallStyle.Render("System: " + stateLabel(telemetry.SummaryState)))
+        b.WriteByte('\n')
 
-		for _, n := range telemetry.IndividualStates {
-			b.WriteByte('\n')
-			lineStyle := stateStyle(n.State).Width(innerWidth)
-			line := fmt.Sprintf("• %s: %s", n.NodeName, stateLabel(n.State))
-			b.WriteString(lineStyle.Render(line))
-			if n.StatusMessage != "" {
-				b.WriteByte('\n')
-				b.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
-			}
-		}
-	}
+        for _, n := range telemetry.IndividualStates {
+            b.WriteByte('\n')
+            lineStyle := stateStyle(n.State).Width(innerWidth)
+            line := fmt.Sprintf("• %s: %s", n.NodeName, stateLabel(n.State))
+            b.WriteString(lineStyle.Render(line))
+            if n.StatusMessage != "" {
+                b.WriteByte('\n')
+                b.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
+            }
+        }
+    }
 
-	return lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Padding(0, 1).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#565F89")).
-		Render(b.String())
+    return lipgloss.NewStyle().
+        Width(width).
+        Height(height).
+        Padding(1, 1, 0, 1). // Top: 1 (matches mainCol padding), Right: 1, Bottom: 0, Left: 1
+        Border(lipgloss.NormalBorder()).
+        BorderForeground(lipgloss.Color("#565F89")).
+        Render(b.String())
 }
 
 
@@ -560,39 +679,63 @@ func (m Model) View() string {
 		return "Initializing TUI..."
 	}
 
-
 	var main strings.Builder
-	statusLine := fmt.Sprintf("Backend: %s [%s] | %s", m.AppServerURL, m.connMsg, bridgeStatusText(m.bridgeConnected))
+
+	main.WriteString(titleStyle.Render("Embodied AI Proxy — TUI"))
+	main.WriteByte('\n')
+
+	statusLine := fmt.Sprintf(
+		"Backend: %s [%s] | %s",
+		m.AppServerURL, connStatusText(m.connMsg), bridgeStatusText(m.bridgeConnected),
+	)
 	main.WriteString(statusStyle.Render(statusLine))
+
 	if len(m.availableObjects) > 0 {
-		main.WriteString("\n" + mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
+		main.WriteByte('\n')
+		main.WriteString(mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
 	}
-	main.WriteString("\n" + m.viewport.View() + "\n")
+
+	main.WriteByte('\n')
+	dividerWidth := m.viewport.Width
+	if dividerWidth < 1 {
+		dividerWidth = 1
+	}
+	main.WriteString(dividerStyle.Render(strings.Repeat("─", dividerWidth)))
+	main.WriteByte('\n')
+
+	main.WriteString(m.viewport.View())
+	main.WriteByte('\n')
 
 	if m.inFlight {
-		main.WriteString(statusStyle.Render("waiting for response...") + "\n")
+		main.WriteByte('\n')
+		elapsed := time.Since(m.promptSentAt).Round(time.Second)
+		main.WriteString(statusStyle.Render(m.spin.View() + " waiting for response... (" + elapsed.String() + ")"))
 	} else {
-		main.WriteString("\n")
+		main.WriteByte('\n')
 	}
+	main.WriteByte('\n')
 
-	main.WriteString(m.input.View() + "\n")
+	main.WriteString(inputBoxStyle.Width(dividerWidth).Render(m.input.View()))
+	main.WriteByte('\n')
+
 	main.WriteString(mutedStyle.Render("(Enter to submit • F1 to view help • ctrl+c to quit)"))
 
-	mainCol := lipgloss.NewStyle().Padding(1, 2).Render(main.String())
+	mainCol := lipgloss.NewStyle().
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3B4261")).
+		Render(main.String())
 
 	if !m.showSidebar {
 		return mainCol
 	}
 
 	if m.Width >= minWidthForSidebar {
-		sidebarHeight := max(3, m.Height-2)
-		sidebar := renderSidebar(m.telemetry, sidebarWidth, sidebarHeight)
+		sidebar := renderSidebar(m.telemetry, sidebarWidth, m.Height)
 		return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
 	}
 
-	// Narrow terminal: stack the sidebar below the main column instead of
-	// squeezing it side-by-side.
-	stackedWidth := contentWidth(m.Width) + 4 // roughly match mainCol's rendered width
+	stackedWidth := contentWidth(m.Width) + 4
 	sidebar := renderSidebar(m.telemetry, stackedWidth, 8)
 	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
 }
