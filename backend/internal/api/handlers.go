@@ -37,8 +37,9 @@ func InfoHandler(cfg *sharedconfig.AppConfig, hub *websocket.Hub, p *pipeline.Pi
 }
 
 type promptRequestPayload struct {
-	Prompt           string   `json:"prompt"`
-	AvailableObjects []string `json:"available_objects"`
+	Prompt             string   `json:"prompt"`
+	AvailableObjects   []string `json:"available_objects"`
+	AvailableMovements []string `json:"available_movements"`
 }
 
 // PromptHandler exposes the prompt pipeline over HTTP as POST /api/prompt,
@@ -66,7 +67,7 @@ func PromptHandler(p *pipeline.Pipeline) http.HandlerFunc {
 			return
 		}
 
-		result := p.Run(r.Context(), payload.Prompt, payload.AvailableObjects)
+		result := p.Run(r.Context(), payload.Prompt, payload.AvailableObjects, payload.AvailableMovements)
 		if result.Error != "" && result.RawOutput == "" {
 			w.WriteHeader(http.StatusBadGateway) // transport/upstream failure, not a validation failure
 		} else {

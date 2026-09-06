@@ -17,6 +17,7 @@ import (
 type BridgeObserver interface {
 	OnBridgeConnectionChange(connected bool)
 	OnObjectsUpdated(objects []string)
+	OnMovementsUpdated(movements []string)
 	OnTelemetry(msg json.RawMessage)
 }
 
@@ -47,6 +48,7 @@ type Client struct {
 
 	objectsMu     sync.RWMutex
 	availableObjs []string
+	availableMvts []string
 
 	pendingMu sync.Mutex
 	pending   map[string]chan serviceResponse
@@ -76,6 +78,13 @@ func (c *Client) GetAvailableObjects() []string {
 	return c.availableObjs
 }
 
+// GetAvailableMovements returns the cached list of named relative movements.
+func (c *Client) GetAvailableMovements() []string {
+	c.objectsMu.RLock()
+	defer c.objectsMu.RUnlock()
+	return c.availableMvts
+}
+
 func (c *Client) setAvailableObjects(objects []string) {
 	c.objectsMu.Lock()
 	c.availableObjs = objects
@@ -83,6 +92,16 @@ func (c *Client) setAvailableObjects(objects []string) {
 
 	if c.observer != nil {
 		c.observer.OnObjectsUpdated(objects)
+	}
+}
+
+func (c *Client) setAvailableMovements(movements []string) {
+	c.objectsMu.Lock()
+	c.availableMvts = movements
+	c.objectsMu.Unlock()
+
+	if c.observer != nil {
+		c.observer.OnMovementsUpdated(movements)
 	}
 }
 
@@ -131,6 +150,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		c.mu.Unlock()
 
 		c.setAvailableObjects(nil)
+		c.setAvailableMovements(nil)
 		if c.observer != nil {
 			c.observer.OnBridgeConnectionChange(false)
 		}
@@ -150,15 +170,17 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		"type":  "kinova_interfaces/msg/SystemSummary",
 	})
 
-	// Fetch initial workspace objects once on connect
+	// Fetch initial workspace objects and movements once on connect
 	go func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if objs, err := c.FetchObjects(fetchCtx); err == nil {
+		if objs, mvts, err := c.FetchWorkspaceParams(fetchCtx); err == nil {
 			log.Printf("[Rosbridge] workspace objects fetched: %v", objs)
+			log.Printf("[Rosbridge] workspace movements fetched: %v", mvts)
 			c.setAvailableObjects(objs)
+			c.setAvailableMovements(mvts)
 		} else {
-			log.Printf("[Rosbridge] initial object fetch warning: %v", err)
+			log.Printf("[Rosbridge] initial workspace params fetch warning: %v", err)
 		}
 	}()
 
@@ -246,20 +268,22 @@ func (c *Client) CallService(ctx context.Context, service string, args any) (jso
 	}
 }
 
-// FetchObjects queries the /get_robot_parameters ROS service for the detected object list.
-func (c *Client) FetchObjects(ctx context.Context) ([]string, error) {
+// FetchWorkspaceParams queries the /get_robot_parameters ROS service for the
+// known object names and named relative movements.
+func (c *Client) FetchWorkspaceParams(ctx context.Context) (objects, movements []string, err error) {
 	values, err := c.CallService(ctx, "/get_robot_parameters", map[string]any{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var resp struct {
-		ObjectList []string `json:"object_list"`
+		ObjectList    []string `json:"object_list"`
+		MovementNames []string `json:"movement_names"`
 	}
 	if err := json.Unmarshal(values, &resp); err != nil {
-		return nil, fmt.Errorf("decode /get_robot_parameters response: %w", err)
+		return nil, nil, fmt.Errorf("decode /get_robot_parameters response: %w", err)
 	}
-	return resp.ObjectList, nil
+	return resp.ObjectList, resp.MovementNames, nil
 }
 
 // ExecuteRecipe dispatches a validated action recipe to the /execute_recipe ROS service.

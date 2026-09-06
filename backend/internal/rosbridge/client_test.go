@@ -18,10 +18,11 @@ var upgrader = websocket.Upgrader{
 }
 
 type mockObserver struct {
-	mu           sync.Mutex
-	connStates   []bool
-	objectsList  [][]string
-	telemetryMsg []string
+	mu            sync.Mutex
+	connStates    []bool
+	objectsList   [][]string
+	movementsList [][]string
+	telemetryMsg  []string
 }
 
 func (m *mockObserver) OnBridgeConnectionChange(connected bool) {
@@ -34,6 +35,12 @@ func (m *mockObserver) OnObjectsUpdated(objects []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.objectsList = append(m.objectsList, objects)
+}
+
+func (m *mockObserver) OnMovementsUpdated(movements []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.movementsList = append(m.movementsList, movements)
 }
 
 func (m *mockObserver) OnTelemetry(msg json.RawMessage) {
@@ -70,7 +77,8 @@ func TestClient_Connect_SubscribesAndFetchesObjects(t *testing.T) {
 						"service": service,
 						"result":  &trueVal,
 						"values": map[string]any{
-							"object_list": []string{"red_cube", "blue_tray"},
+							"object_list":    []string{"red_cube", "blue_tray"},
+							"movement_names": []string{"move_upwards", "retreat"},
 						},
 					})
 				}
@@ -104,6 +112,11 @@ func TestClient_Connect_SubscribesAndFetchesObjects(t *testing.T) {
 	objs := client.GetAvailableObjects()
 	if len(objs) != 2 || objs[0] != "red_cube" || objs[1] != "blue_tray" {
 		t.Errorf("GetAvailableObjects() = %v, want [red_cube, blue_tray]", objs)
+	}
+
+	mvts := client.GetAvailableMovements()
+	if len(mvts) != 2 || mvts[0] != "move_upwards" || mvts[1] != "retreat" {
+		t.Errorf("GetAvailableMovements() = %v, want [move_upwards, retreat]", mvts)
 	}
 }
 

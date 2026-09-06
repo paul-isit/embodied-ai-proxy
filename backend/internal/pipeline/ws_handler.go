@@ -24,15 +24,16 @@ func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 		return
 	}
 
-	var availableObjs []string
+	var availableObjs, availableMvts []string
 	if p.bridge != nil {
 		availableObjs = p.bridge.GetAvailableObjects()
+		availableMvts = p.bridge.GetAvailableMovements()
 	}
 
 	llmCtx, llmCancel := context.WithTimeout(ctx, defaultLLMTimeout)
 	defer llmCancel()
 
-	result := p.Run(llmCtx, userText, availableObjs)
+	result := p.Run(llmCtx, userText, availableObjs, availableMvts)
 	if ctx.Err() != nil {
 		log.Printf("[Pipeline] command %q aborted: context canceled/timed out: %v", userText, ctx.Err())
 		return
