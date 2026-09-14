@@ -23,6 +23,17 @@
       "type": "string",
       "minLength": 1,
       "description": "Must exactly match one of the known relative movement names."
+    },
+    "orientationName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must exactly match one of the known orientation preset names in Available Orientations."
+    },
+    "speedScale": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Velocity/acceleration scaling factor for this move. Omit, or use 0.0, to fall back to the arm's configured default speed."
     }
   },
   "oneOf": [
@@ -48,7 +59,13 @@
                   "step_id": { "type": "integer", "minimum": 1 },
                   "action": { "const": "home" },
                   "description": { "type": "string", "minLength": 1 },
-                  "parameters": { "type": "object", "additionalProperties": false }
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "speed": { "$ref": "#/$defs/speedScale" }
+                    },
+                    "additionalProperties": false
+                  }
                 },
                 "required": ["step_id", "action", "description"],
                 "additionalProperties": false
@@ -63,7 +80,12 @@
                   "parameters": {
                     "type": "object",
                     "properties": {
-                      "target": { "$ref": "#/$defs/objectName" }
+                      "target": { "$ref": "#/$defs/objectName" },
+                      "orientation": {
+                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
+                        "description": "Optional absolute end-effector orientation to hold at the target. Omit to let the planner pick any orientation."
+                      },
+                      "speed": { "$ref": "#/$defs/speedScale" }
                     },
                     "required": ["target"],
                     "additionalProperties": false
@@ -82,7 +104,12 @@
                   "parameters": {
                     "type": "object",
                     "properties": {
-                      "vector": { "$ref": "#/$defs/vectorName" }
+                      "vector": { "$ref": "#/$defs/vectorName" },
+                      "orientation": {
+                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
+                        "description": "Optional orientation delta applied on top of the arm's current orientation. Omit to keep the current orientation unchanged."
+                      },
+                      "speed": { "$ref": "#/$defs/speedScale" }
                     },
                     "required": ["vector"],
                     "additionalProperties": false

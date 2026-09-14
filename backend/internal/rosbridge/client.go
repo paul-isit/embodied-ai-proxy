@@ -18,6 +18,7 @@ type BridgeObserver interface {
 	OnBridgeConnectionChange(connected bool)
 	OnObjectsUpdated(objects []string)
 	OnMovementsUpdated(movements []string)
+	OnOrientationsUpdated(orientations []string)
 	OnTelemetry(msg json.RawMessage)
 }
 
@@ -46,9 +47,10 @@ type Client struct {
 	connected atomic.Bool
 	reqSeq    atomic.Uint64
 
-	objectsMu     sync.RWMutex
-	availableObjs []string
-	availableMvts []string
+	objectsMu        sync.RWMutex
+	availableObjs    []string
+	availableMvts    []string
+	availableOrients []string
 
 	pendingMu sync.Mutex
 	pending   map[string]chan serviceResponse
@@ -85,6 +87,13 @@ func (c *Client) GetAvailableMovements() []string {
 	return c.availableMvts
 }
 
+// GetAvailableOrientations returns the cached list of named orientation presets.
+func (c *Client) GetAvailableOrientations() []string {
+	c.objectsMu.RLock()
+	defer c.objectsMu.RUnlock()
+	return c.availableOrients
+}
+
 func (c *Client) setAvailableObjects(objects []string) {
 	c.objectsMu.Lock()
 	c.availableObjs = objects
@@ -102,6 +111,16 @@ func (c *Client) setAvailableMovements(movements []string) {
 
 	if c.observer != nil {
 		c.observer.OnMovementsUpdated(movements)
+	}
+}
+
+func (c *Client) setAvailableOrientations(orientations []string) {
+	c.objectsMu.Lock()
+	c.availableOrients = orientations
+	c.objectsMu.Unlock()
+
+	if c.observer != nil {
+		c.observer.OnOrientationsUpdated(orientations)
 	}
 }
 
@@ -151,6 +170,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 
 		c.setAvailableObjects(nil)
 		c.setAvailableMovements(nil)
+		c.setAvailableOrientations(nil)
 		if c.observer != nil {
 			c.observer.OnBridgeConnectionChange(false)
 		}
@@ -174,11 +194,13 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	go func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if objs, mvts, err := c.FetchWorkspaceParams(fetchCtx); err == nil {
+		if objs, mvts, orients, err := c.FetchWorkspaceParams(fetchCtx); err == nil {
 			log.Printf("[Rosbridge] workspace objects fetched: %v", objs)
 			log.Printf("[Rosbridge] workspace movements fetched: %v", mvts)
+			log.Printf("[Rosbridge] workspace orientation presets fetched: %v", orients)
 			c.setAvailableObjects(objs)
 			c.setAvailableMovements(mvts)
+			c.setAvailableOrientations(orients)
 		} else {
 			log.Printf("[Rosbridge] initial workspace params fetch warning: %v", err)
 		}
@@ -269,21 +291,22 @@ func (c *Client) CallService(ctx context.Context, service string, args any) (jso
 }
 
 // FetchWorkspaceParams queries the /get_robot_parameters ROS service for the
-// known object names and named relative movements.
-func (c *Client) FetchWorkspaceParams(ctx context.Context) (objects, movements []string, err error) {
+// known object names, named relative movements, and named orientation presets.
+func (c *Client) FetchWorkspaceParams(ctx context.Context) (objects, movements, orientations []string, err error) {
 	values, err := c.CallService(ctx, "/get_robot_parameters", map[string]any{})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var resp struct {
-		ObjectList    []string `json:"object_list"`
-		MovementNames []string `json:"movement_names"`
+		ObjectList       []string `json:"object_list"`
+		MovementNames    []string `json:"movement_names"`
+		OrientationNames []string `json:"orientation_names"`
 	}
 	if err := json.Unmarshal(values, &resp); err != nil {
-		return nil, nil, fmt.Errorf("decode /get_robot_parameters response: %w", err)
+		return nil, nil, nil, fmt.Errorf("decode /get_robot_parameters response: %w", err)
 	}
-	return resp.ObjectList, resp.MovementNames, nil
+	return resp.ObjectList, resp.MovementNames, resp.OrientationNames, nil
 }
 
 // ExecuteRecipe dispatches a validated action recipe to the /execute_recipe ROS service.

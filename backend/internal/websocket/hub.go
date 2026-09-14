@@ -95,6 +95,15 @@ func (h *Hub) OnMovementsUpdated(movements []string) {
 	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})
 }
 
+// OnOrientationsUpdated implements rosbridge.BridgeObserver
+func (h *Hub) OnOrientationsUpdated(orientations []string) {
+	payload, err := json.Marshal(map[string]any{"orientation_names": orientations})
+	if err != nil {
+		return
+	}
+	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})
+}
+
 // OnTelemetry implements rosbridge.BridgeObserver
 func (h *Hub) OnTelemetry(msg json.RawMessage) {
 	payload, err := json.Marshal(map[string]any{"middleware_status": msg})

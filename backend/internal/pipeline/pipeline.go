@@ -18,6 +18,7 @@ type ROSBridge interface {
 	IsConnected() bool
 	GetAvailableObjects() []string
 	GetAvailableMovements() []string
+	GetAvailableOrientations() []string
 	ExecuteRecipe(ctx context.Context, recipeJSON []byte) error
 }
 
@@ -110,8 +111,8 @@ type Result struct {
 // Run builds the prompt, dispatches it to the LLM proxy, and validates the
 // result. It does not touch the WebSocket hub - callers decide what to do
 // with the outcome.
-func (p *Pipeline) Run(ctx context.Context, userText string, objects, movements []string) Result {
-	fullPrompt := p.buildPrompt(userText, objects, movements)
+func (p *Pipeline) Run(ctx context.Context, userText string, objects, movements, orientations []string) Result {
+	fullPrompt := p.buildPrompt(userText, objects, movements, orientations)
 	log.Printf("[Pipeline] command received: %q", userText)
 
 	rawOutput, err := p.callLLMProxy(ctx, fullPrompt)

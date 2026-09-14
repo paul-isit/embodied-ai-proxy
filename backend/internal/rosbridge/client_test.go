@@ -18,11 +18,12 @@ var upgrader = websocket.Upgrader{
 }
 
 type mockObserver struct {
-	mu            sync.Mutex
-	connStates    []bool
-	objectsList   [][]string
-	movementsList [][]string
-	telemetryMsg  []string
+	mu               sync.Mutex
+	connStates       []bool
+	objectsList      [][]string
+	movementsList    [][]string
+	orientationsList [][]string
+	telemetryMsg     []string
 }
 
 func (m *mockObserver) OnBridgeConnectionChange(connected bool) {
@@ -41,6 +42,12 @@ func (m *mockObserver) OnMovementsUpdated(movements []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.movementsList = append(m.movementsList, movements)
+}
+
+func (m *mockObserver) OnOrientationsUpdated(orientations []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.orientationsList = append(m.orientationsList, orientations)
 }
 
 func (m *mockObserver) OnTelemetry(msg json.RawMessage) {
@@ -77,8 +84,9 @@ func TestClient_Connect_SubscribesAndFetchesObjects(t *testing.T) {
 						"service": service,
 						"result":  &trueVal,
 						"values": map[string]any{
-							"object_list":    []string{"red_cube", "blue_tray"},
-							"movement_names": []string{"move_upwards", "retreat"},
+							"object_list":       []string{"red_cube", "blue_tray"},
+							"movement_names":    []string{"move_upwards", "retreat"},
+							"orientation_names": []string{"facing_forward", "tilted_for_pour"},
 						},
 					})
 				}
@@ -117,6 +125,11 @@ func TestClient_Connect_SubscribesAndFetchesObjects(t *testing.T) {
 	mvts := client.GetAvailableMovements()
 	if len(mvts) != 2 || mvts[0] != "move_upwards" || mvts[1] != "retreat" {
 		t.Errorf("GetAvailableMovements() = %v, want [move_upwards, retreat]", mvts)
+	}
+
+	orients := client.GetAvailableOrientations()
+	if len(orients) != 2 || orients[0] != "facing_forward" || orients[1] != "tilted_for_pour" {
+		t.Errorf("GetAvailableOrientations() = %v, want [facing_forward, tilted_for_pour]", orients)
 	}
 }
 

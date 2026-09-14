@@ -71,11 +71,12 @@ func fakeLLMProxy(t *testing.T, responseText string) *httptest.Server {
 }
 
 type mockROSBridge struct {
-	mu        sync.Mutex
-	connected bool
-	objects   []string
-	movements []string
-	executed  [][]byte
+	mu           sync.Mutex
+	connected    bool
+	objects      []string
+	movements    []string
+	orientations []string
+	executed     [][]byte
 }
 
 func (m *mockROSBridge) IsConnected() bool {
@@ -96,6 +97,12 @@ func (m *mockROSBridge) GetAvailableMovements() []string {
 	return m.movements
 }
 
+func (m *mockROSBridge) GetAvailableOrientations() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.orientations
+}
+
 func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -103,14 +110,14 @@ func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) er
 	return nil
 }
 
-const testSystemPrompt = "Schema:\n{schema_template}\n\nObjects:\n{available_objects}\n\nMovements:\n{available_movements}\n\nCommand: {user_command}"
+const testSystemPrompt = "Schema:\n{schema_template}\n\nObjects:\n{available_objects}\n\nMovements:\n{available_movements}\n\nOrientations:\n{available_orientations}\n\nCommand: {user_command}"
 
 func TestPipeline_Run_ValidRecipe(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "go home", []string{"red_cube"}, []string{"move_upwards"})
+	result := p.Run(context.Background(), "go home", []string{"red_cube"}, []string{"move_upwards"}, []string{"facing_forward"})
 
 	if result.Error != "" {
 		t.Fatalf("Run() error = %q", result.Error)
@@ -125,7 +132,7 @@ func TestPipeline_Run_InvalidRecipeFailsSchemaValidation(t *testing.T) {
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "go home", nil, nil)
+	result := p.Run(context.Background(), "go home", nil, nil, nil)
 
 	if result.Error == "" {
 		t.Fatal("expected schema validation error, got none")
@@ -137,7 +144,7 @@ func TestPipeline_Run_StripsMarkdownFences(t *testing.T) {
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "pick up cube", nil, nil)
+	result := p.Run(context.Background(), "pick up cube", nil, nil, nil)
 
 	if result.Error != "" {
 		t.Fatalf("Run() error = %q", result.Error)
@@ -217,9 +224,10 @@ type failingROSBridge struct {
 	connected bool
 }
 
-func (f *failingROSBridge) IsConnected() bool               { return f.connected }
-func (f *failingROSBridge) GetAvailableObjects() []string   { return nil }
-func (f *failingROSBridge) GetAvailableMovements() []string { return nil }
+func (f *failingROSBridge) IsConnected() bool                  { return f.connected }
+func (f *failingROSBridge) GetAvailableObjects() []string      { return nil }
+func (f *failingROSBridge) GetAvailableMovements() []string    { return nil }
+func (f *failingROSBridge) GetAvailableOrientations() []string { return nil }
 func (f *failingROSBridge) ExecuteRecipe(ctx context.Context, recipe []byte) error {
 	return errors.New("gripper jammed")
 }
