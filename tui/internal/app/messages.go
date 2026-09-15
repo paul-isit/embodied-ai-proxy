@@ -10,6 +10,7 @@ import (
 type SystemInfoMsg struct {
 	Info *client.SystemInfo
 	Err  error
+	Use string
 }
 
 type WSConnectedMsg struct{}
