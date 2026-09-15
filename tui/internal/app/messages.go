@@ -10,6 +10,7 @@ import (
 type SystemInfoMsg struct {
 	Info *client.SystemInfo
 	Err  error
+	Use string
 }
 
 type WSConnectedMsg struct{}
@@ -59,3 +60,26 @@ type PromptProcessingMsg struct {
 	InProcess bool
 	Prompt    string
 }
+
+// MiddlewareStatus mirrors kinova_interfaces/msg/SystemSummary, arriving
+// inside a status_update envelope's middleware_status field.
+type MiddlewareStatus struct {
+	SummaryState     int          `json:"summary_state"`
+	IndividualStates []NodeStatus `json:"individual_states"`
+}
+
+// NodeStatus mirrors kinova_interfaces/msg/ExtendedStatus.
+type NodeStatus struct {
+	NodeName         string `json:"node_name"`
+	State            int    `json:"state"`
+	StatusMessage    string `json:"status_message"`
+	LastCommandValid bool   `json:"last_command_valid"`
+}
+
+// Node/summary state values, matching ExtendedStatus/SystemSummary's
+// STATE_*/SYSTEM_* constants (READY=0, BUSY=1, FAULT=2).
+const (
+	StateReady = 0
+	StateBusy  = 1
+	StateFault = 2
+)
