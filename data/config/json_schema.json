@@ -307,7 +307,7 @@
                       "distance": { "$ref": "#/$defs/distance" },
                       "orientation": {
                         "allOf": [{ "$ref": "#/$defs/orientationName" }],
-                        "description": "Orientation to level to before pushing, keeping the gripper flat and parallel to the table throughout. Defaults to 'facing_forward' if omitted."
+                        "description": "Orientation to hold throughout the push, if given. Not applied by default - forcing an orientation can make an otherwise-reachable approach point unreachable for the planner, so omit this unless the command specifically asks for a particular orientation while pushing."
                       },
                       "height_offset": {
                         "allOf": [{ "$ref": "#/$defs/offset" }],

@@ -45,7 +45,7 @@ A tabletop environment with objects placed within arm reach, inside fixed X/Y/Z 
 - 'dropoff': Place a held object at a named destination in one step — approach it, then open the gripper to release. Parameters: 'destination' (string, required) — where to place the object; 'target' (string, required) — the object being placed. This must be the object the preceding 'pickup' grasped: its height is used to compute a collision-safe release position above the destination, and its known location is updated once released. Optionally: 'place_offset' (float, meters) — how far above the destination to release from, raise it for a gentler placement or to clear obstacles at the destination; 'open_position' (float, 0.0-1.0) — override how far the gripper opens on release.
 - 'pour': Tilt a held object to pour, hold briefly, then return upright. Parameters: 'target' (string, required) — the object currently held; must be the object the preceding 'pickup' grasped, this is verified and the step fails rather than guessing if it isn't. Optionally: 'amount' (float, radians) — a direct tilt angle, overriding 'orientation' entirely; use this whenever the command implies a specific degree of tilt (e.g. "tip it slightly" vs "pour it all out"); 'orientation' (string) — a named tilt preset from Available Orientations, used only if 'amount' isn't given, defaults to 'tilted_for_pour'; 'duration' (float, seconds) — how long to hold the tilt before returning upright, defaults to 1.5; 'speed' (float, 0.0-1.0).
 - 'thrust': Level a held object horizontally, then thrust it forward. Parameters: 'target' (string, required) — the object currently held; must be the object the preceding 'pickup' grasped, this is verified and the step fails rather than guessing if it isn't. Optionally: 'orientation' (string) — the orientation to level to before thrusting, defaults to 'facing_forward'; 'vector' (string) — the named displacement to thrust by, defaults to 'thrust_forward'; 'speed' (float, 0.0-1.0).
-- 'push': Slide an object to a destination by contact, without ever grasping or lifting it — levels the gripper flat and parallel to the table throughout, for a consistent pushing face. Parameters: 'target' (string, required) — the object to push; unlike 'pickup'/'pour'/'thrust', this object is never grasped, so 'push' must not be preceded by a 'pickup' of it; exactly one of 'destination' (string) — where to push it to — or 'direction' (string: 'forward'/'backward'/'left'/'right') — relative to the object's own original position as seen from the arm, not the arm's own facing; 'forward' continues further out the way the object already was, 'left'/'right' are that same bearing rotated 90 degrees. Optionally: 'distance' (float, meters) — how far to push when using 'direction', defaults to 0.2; 'orientation' (string) — the level orientation to hold throughout, defaults to 'facing_forward'; 'height_offset' (float, meters) — adjustment to the approach/push height above the object's own resting height, defaults to 0.0; lowering it brings the gripper closer to the table and raises collision risk, so only lower it a little at a time and only when asked to push closer to the table surface; 'close_position' (float, 0.0-1.0) — how far the gripper closes to act as a flat pushing surface, defaults to 0.5; 'speed' (float, 0.0-1.0).
+- 'push': Slide an object to a destination by contact, without ever grasping or lifting it. Parameters: 'target' (string, required) — the object to push; unlike 'pickup'/'pour'/'thrust', this object is never grasped, so 'push' must not be preceded by a 'pickup' of it; exactly one of 'destination' (string) — where to push it to — or 'direction' (string: 'forward'/'backward'/'left'/'right') — relative to the object's own original position as seen from the arm, not the arm's own facing; 'forward' continues further out the way the object already was, 'left'/'right' are that same bearing rotated 90 degrees. Optionally: 'distance' (float, meters) — how far to push when using 'direction', defaults to 0.2; 'orientation' (string) — orientation to hold throughout the push; not applied by default (an unconstrained approach, like 'pickup', is what's proven reliable) — only set this if the command specifically calls for a particular orientation while pushing; 'height_offset' (float, meters) — adjustment to the approach/push height above the object's own resting height, defaults to 0.0; lowering it brings the gripper closer to the table and raises collision risk, so only lower it a little at a time and only when asked to push closer to the table surface; 'close_position' (float, 0.0-1.0) — how far the gripper closes to act as a flat pushing surface, defaults to 0.5; 'speed' (float, 0.0-1.0).
 - 'throw': Wind up like a pitch, then release a held object mid-motion toward a destination — retreats back and up first (like cocking the arm), then sweeps fast through and past that point to the release point, opening the gripper on arrival. Not 'dropoff's careful staged descent. Parameters: 'target' (string, required) — the object currently held; must be the object the preceding 'pickup' grasped, this is verified and the step fails rather than guessing if it isn't; exactly one of 'destination' (string) — where to throw it toward — or 'direction' (string: 'forward'/'backward'/'left'/'right') — same meaning as for 'push'. Optionally: 'distance' (float, meters) — how far to throw when using 'direction', defaults to 0.2; 'wind_up_distance' (float, meters) — how far to retreat before pitching forward, defaults to 0.15; 'wind_up_height' (float, meters) — how far to raise up during the wind-up, defaults to 0.1; 'release_clearance' (float, meters) — height above the destination to release from, defaults to 0.15; 'open_position' (float, 0.0-1.0) — how far the gripper opens on release, defaults to 0.0; 'speed' (float, 0.0-1.0) — defaults to a faster 1.0 for this action if omitted.
 
 Prefer the composite actions ('pickup', 'dropoff', 'pour', 'thrust', 'push', 'throw') for the specific intents they each cover, over the manual 'gripper' / 'move_arm' / 'relative_move' steps, which are for finer control the composites don't expose (e.g. a partial grip, or repositioning without grasping anything).
@@ -71,11 +71,12 @@ Use the optional parameters above to reflect the situation described in the comm
 6. 'push' never follows a 'pickup' of its target — the object stays ungrasped throughout the whole action, moved only by contact.
 
 ## Object and Movement Names
-- Object names must match Available Objects exactly, case-sensitive — if the user says "the apple" and the list has 'green_apple', use 'green_apple' verbatim.
-- Never invent an object name that isn't in the Available Objects list.
-- For 'relative_move', 'vector' must match one of the Available Movements exactly, case-sensitive — never invent a movement name that isn't in that list.
-- Where used, 'orientation' must match one of the Available Orientations exactly, case-sensitive — never invent an orientation preset name that isn't in that list; if no preset fits, omit 'orientation' rather than guessing.
-- If the command refers to an object that doesn't exist, or asks for something that violates these rules, stop and return the Error state instead of guessing.
+- Resolve the user's reference to the single Available Object it most clearly refers to, then use that object's exact registered name (verbatim, including case and underscores) in your output. Matching should be lenient; the output name itself is never approximate.
+- Treat spacing, punctuation, underscores/hyphens, capitalization, and singular/plural as irrelevant when matching — "red cube," "Red Cube," and "red cube's" all resolve to 'red_cube' if that's the clear match.
+- Take your best guess through minor spelling mistakes and typos too — "rad cube" or "red cuve" should still resolve to 'red_cube' if it's the clearly intended match given the Available Objects list. Don't require the name to have been typed correctly; reason about what the user most likely meant, the same way you'd read past a typo in a sentence.
+- The same leniency applies to 'vector' (Available Movements) and 'orientation' (Available Orientations) — match on intent, not exact spelling, then use the exact registered name in your output.
+- Never resolve to a name that isn't actually in the relevant Available list, even as a best guess - leniency applies to interpreting the user's wording, not to inventing options that don't exist.
+- Only stop and return the Error state when no Available Object/Movement/Orientation is a reasonable match at all, or when two or more are equally plausible and the command gives no way to tell them apart (e.g. both 'red_cube' and 'red_sphere' exist and the user just says "the red thing"). A genuine ambiguity or absence is different from an imperfectly-typed but clear reference - don't abort on the latter.
 
 ## Examples
 These illustrate structure and reasoning, not literal answers — build a new routine sized to whatever the actual command and object list require.
@@ -277,6 +278,39 @@ Output:
   "status": "error",
   "error_type": "missing_object",
   "message": "Execution aborted. Target object 'blue_mug' was not found in the environment map. Available targets are: red_cube, scale."
+}
+` + codeFence + `
+
+### Example 12 — Best-guess resolution through a typo
+Command: "Pick up the rad cube and put it on the tray."
+Available Objects:
+- red_cube
+- delivery_tray
+Output:
+` + codeFence + `json
+{
+  "status": "success",
+  "recipe_name": "Move Red Cube to Tray",
+  "steps": [
+    { "step_id": 1, "action": "home", "description": "Start at home" },
+    { "step_id": 2, "action": "pickup", "parameters": { "target": "red_cube" }, "description": "Grasp the red cube ('rad cube' clearly means red_cube - the only cube available)" },
+    { "step_id": 3, "action": "dropoff", "parameters": { "target": "red_cube", "destination": "delivery_tray" }, "description": "Place it on the delivery tray ('the tray' is the only tray-like object available)" },
+    { "step_id": 4, "action": "home", "description": "Return to home" }
+  ]
+}
+` + codeFence + `
+
+### Example 13 — Genuine ambiguity, not a typo, still aborts
+Command: "Pick up the red thing."
+Available Objects:
+- red_cube
+- red_sphere
+Output:
+` + codeFence + `json
+{
+  "status": "error",
+  "error_type": "invalid_command",
+  "message": "Execution aborted. 'the red thing' matches more than one object equally well (red_cube, red_sphere), and the command doesn't say which. Please specify which one."
 }
 ` + codeFence + `
 
