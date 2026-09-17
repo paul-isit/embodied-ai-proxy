@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/websocket"
 	"encoding/json"
 	"fmt"
@@ -25,16 +26,18 @@ func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 	}
 
 	var availableObjs, availableMvts, availableOrients []string
+	var tableBounds rosbridge.TableBounds
 	if p.bridge != nil {
 		availableObjs = p.bridge.GetAvailableObjects()
 		availableMvts = p.bridge.GetAvailableMovements()
 		availableOrients = p.bridge.GetAvailableOrientations()
+		tableBounds = p.bridge.GetTableBounds()
 	}
 
 	llmCtx, llmCancel := context.WithTimeout(ctx, defaultLLMTimeout)
 	defer llmCancel()
 
-	result := p.Run(llmCtx, userText, availableObjs, availableMvts, availableOrients)
+	result := p.Run(llmCtx, userText, availableObjs, availableMvts, availableOrients, tableBounds)
 	if ctx.Err() != nil {
 		log.Printf("[Pipeline] command %q aborted: context canceled/timed out: %v", userText, ctx.Err())
 		return

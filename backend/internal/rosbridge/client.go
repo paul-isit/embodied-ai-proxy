@@ -19,7 +19,19 @@ type BridgeObserver interface {
 	OnObjectsUpdated(objects []string)
 	OnMovementsUpdated(movements []string)
 	OnOrientationsUpdated(orientations []string)
+	OnTableBoundsUpdated(bounds TableBounds)
 	OnTelemetry(msg json.RawMessage)
+}
+
+// TableBounds describes the known table footprint in the arm's base frame
+// (Available is false if no table obstacle is configured), used to warn the
+// LLM against pushing/throwing objects off the table edge.
+type TableBounds struct {
+	Available bool    `json:"available"`
+	XMin      float64 `json:"x_min"`
+	XMax      float64 `json:"x_max"`
+	YMin      float64 `json:"y_min"`
+	YMax      float64 `json:"y_max"`
 }
 
 type serviceResponse struct {
@@ -51,6 +63,7 @@ type Client struct {
 	availableObjs    []string
 	availableMvts    []string
 	availableOrients []string
+	tableBounds      TableBounds
 
 	pendingMu sync.Mutex
 	pending   map[string]chan serviceResponse
@@ -94,6 +107,13 @@ func (c *Client) GetAvailableOrientations() []string {
 	return c.availableOrients
 }
 
+// GetTableBounds returns the cached table footprint, if one is configured.
+func (c *Client) GetTableBounds() TableBounds {
+	c.objectsMu.RLock()
+	defer c.objectsMu.RUnlock()
+	return c.tableBounds
+}
+
 func (c *Client) setAvailableObjects(objects []string) {
 	c.objectsMu.Lock()
 	c.availableObjs = objects
@@ -121,6 +141,16 @@ func (c *Client) setAvailableOrientations(orientations []string) {
 
 	if c.observer != nil {
 		c.observer.OnOrientationsUpdated(orientations)
+	}
+}
+
+func (c *Client) setTableBounds(bounds TableBounds) {
+	c.objectsMu.Lock()
+	c.tableBounds = bounds
+	c.objectsMu.Unlock()
+
+	if c.observer != nil {
+		c.observer.OnTableBoundsUpdated(bounds)
 	}
 }
 
@@ -171,6 +201,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		c.setAvailableObjects(nil)
 		c.setAvailableMovements(nil)
 		c.setAvailableOrientations(nil)
+		c.setTableBounds(TableBounds{})
 		if c.observer != nil {
 			c.observer.OnBridgeConnectionChange(false)
 		}
@@ -194,13 +225,15 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	go func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if objs, mvts, orients, err := c.FetchWorkspaceParams(fetchCtx); err == nil {
+		if objs, mvts, orients, bounds, err := c.FetchWorkspaceParams(fetchCtx); err == nil {
 			log.Printf("[Rosbridge] workspace objects fetched: %v", objs)
 			log.Printf("[Rosbridge] workspace movements fetched: %v", mvts)
 			log.Printf("[Rosbridge] workspace orientation presets fetched: %v", orients)
+			log.Printf("[Rosbridge] table bounds fetched: %+v", bounds)
 			c.setAvailableObjects(objs)
 			c.setAvailableMovements(mvts)
 			c.setAvailableOrientations(orients)
+			c.setTableBounds(bounds)
 		} else {
 			log.Printf("[Rosbridge] initial workspace params fetch warning: %v", err)
 		}
@@ -291,22 +324,36 @@ func (c *Client) CallService(ctx context.Context, service string, args any) (jso
 }
 
 // FetchWorkspaceParams queries the /get_robot_parameters ROS service for the
-// known object names, named relative movements, and named orientation presets.
-func (c *Client) FetchWorkspaceParams(ctx context.Context) (objects, movements, orientations []string, err error) {
+// known object names, named relative movements, named orientation presets,
+// and the table's footprint (if configured).
+func (c *Client) FetchWorkspaceParams(ctx context.Context) (objects, movements, orientations []string, tableBounds TableBounds, err error) {
 	values, err := c.CallService(ctx, "/get_robot_parameters", map[string]any{})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, TableBounds{}, err
 	}
 
 	var resp struct {
 		ObjectList       []string `json:"object_list"`
 		MovementNames    []string `json:"movement_names"`
 		OrientationNames []string `json:"orientation_names"`
+		HasTableBounds   bool     `json:"has_table_bounds"`
+		TableXMin        float64  `json:"table_x_min"`
+		TableXMax        float64  `json:"table_x_max"`
+		TableYMin        float64  `json:"table_y_min"`
+		TableYMax        float64  `json:"table_y_max"`
 	}
 	if err := json.Unmarshal(values, &resp); err != nil {
-		return nil, nil, nil, fmt.Errorf("decode /get_robot_parameters response: %w", err)
+		return nil, nil, nil, TableBounds{}, fmt.Errorf("decode /get_robot_parameters response: %w", err)
 	}
-	return resp.ObjectList, resp.MovementNames, resp.OrientationNames, nil
+
+	bounds := TableBounds{
+		Available: resp.HasTableBounds,
+		XMin:      resp.TableXMin,
+		XMax:      resp.TableXMax,
+		YMin:      resp.TableYMin,
+		YMax:      resp.TableYMax,
+	}
+	return resp.ObjectList, resp.MovementNames, resp.OrientationNames, bounds, nil
 }
 
 // ExecuteRecipe dispatches a validated action recipe to the /execute_recipe ROS service.

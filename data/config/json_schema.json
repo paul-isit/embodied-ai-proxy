@@ -34,6 +34,22 @@
       "minimum": 0.0,
       "maximum": 1.0,
       "description": "Velocity/acceleration scaling factor for this move. Omit, or use 0.0, to fall back to the arm's configured default speed."
+    },
+    "angleRadians": {
+      "type": "number",
+      "minimum": -3.15,
+      "maximum": 3.15,
+      "description": "Angle in radians, applied as an orientation delta from the arm's current pose."
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["forward", "backward", "left", "right"],
+      "description": "Direction relative to the object's own original bearing from the arm's base, not the arm's own facing. 'forward' continues further out along that same bearing; 'backward' reverses it; 'left'/'right' rotate it +90/-90 degrees."
+    },
+    "distance": {
+      "type": "number",
+      "minimum": 0.0,
+      "description": "Distance in meters to move along the chosen 'direction'. Defaults to 0.2 if omitted."
     }
   },
   "oneOf": [
@@ -180,7 +196,7 @@
                     "properties": {
                       "target": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "The object currently held. Optional; when given, its stored pose is updated to the destination and it is released from the gripper attachment."
+                        "description": "The object currently held. Required: its own height is used to compute a collision-safe release position above the destination, and its stored pose is updated to the destination once released."
                       },
                       "destination": { "$ref": "#/$defs/objectName" },
                       "place_offset": {
@@ -192,7 +208,158 @@
                         "description": "Gripper position to release to. Defaults to 0.0 (open) if omitted."
                       }
                     },
-                    "required": ["destination"],
+                    "required": ["destination", "target"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Tilt the currently held object to pour, hold briefly, then return upright.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "pour" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "The object currently held. Required, and must be the object the preceding 'pickup' grasped - pour verifies it's actually the held object and fails rather than guessing if not."
+                      },
+                      "amount": {
+                        "allOf": [{ "$ref": "#/$defs/angleRadians" }],
+                        "description": "Direct pitch tilt in radians, overriding 'orientation' entirely if given. Use this for 'tilt it slightly' / 'tip it a bit further' style commands where a specific angle is implied. Positive tilts forward/down."
+                      },
+                      "orientation": {
+                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
+                        "description": "Named tilt preset to use instead of 'amount'. Defaults to 'tilted_for_pour' if neither 'amount' nor 'orientation' is given."
+                      },
+                      "duration": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "description": "Seconds to hold the tilt before returning upright. Defaults to 1.5 if omitted."
+                      },
+                      "speed": { "$ref": "#/$defs/speedScale" }
+                    },
+                    "required": ["target"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Level the currently held object horizontally, then thrust it forward.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "thrust" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "The object currently held. Required, and must be the object the preceding 'pickup' grasped - thrust verifies it's actually the held object and fails rather than guessing if not."
+                      },
+                      "orientation": {
+                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
+                        "description": "Orientation to level to before thrusting. Defaults to 'facing_forward' if omitted."
+                      },
+                      "vector": {
+                        "allOf": [{ "$ref": "#/$defs/vectorName" }],
+                        "description": "Named displacement to thrust by. Defaults to 'thrust_forward' if omitted."
+                      },
+                      "speed": { "$ref": "#/$defs/speedScale" }
+                    },
+                    "required": ["target"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Slide an object to a destination by contact, without grasping or lifting it.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "push" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "The object to push. Unlike pickup/pour/thrust, this object is never grasped - push approaches it at its own resting height and slides it along the surface."
+                      },
+                      "destination": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "Named destination to push the object to. Alternative to 'direction' - give exactly one of the two."
+                      },
+                      "direction": {
+                        "allOf": [{ "$ref": "#/$defs/direction" }],
+                        "description": "Direction to push the object by, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
+                      },
+                      "distance": { "$ref": "#/$defs/distance" },
+                      "close_position": {
+                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
+                        "description": "How far the gripper closes to act as a flat pushing surface. Defaults to 0.5 if omitted."
+                      },
+                      "speed": { "$ref": "#/$defs/speedScale" }
+                    },
+                    "required": ["target"],
+                    "anyOf": [
+                      { "required": ["destination"] },
+                      { "required": ["direction"] }
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["step_id", "action", "description", "parameters"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "description": "Release the currently held object mid-motion toward a destination - a single fast move and release, not dropoff's careful staged descent.",
+                "properties": {
+                  "step_id": { "type": "integer", "minimum": 1 },
+                  "action": { "const": "throw" },
+                  "description": { "type": "string", "minLength": 1 },
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "The object currently held. Required, and must be the object the preceding 'pickup' grasped - throw verifies it's actually the held object and fails rather than guessing if not."
+                      },
+                      "destination": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "Named destination to throw the object toward. Alternative to 'direction' - give exactly one of the two."
+                      },
+                      "direction": {
+                        "allOf": [{ "$ref": "#/$defs/direction" }],
+                        "description": "Direction to throw the object in, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
+                      },
+                      "distance": { "$ref": "#/$defs/distance" },
+                      "release_clearance": {
+                        "allOf": [{ "$ref": "#/$defs/offset" }],
+                        "description": "Height above the destination to release from. Defaults to 0.15 if omitted."
+                      },
+                      "open_position": {
+                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
+                        "description": "Gripper position to release to. Defaults to 0.0 (open) if omitted."
+                      },
+                      "speed": { "$ref": "#/$defs/speedScale" }
+                    },
+                    "required": ["target"],
+                    "anyOf": [
+                      { "required": ["destination"] },
+                      { "required": ["direction"] }
+                    ],
                     "additionalProperties": false
                   }
                 },

@@ -2,6 +2,7 @@ package api
 
 import (
 	"embodied-ai-proxy/backend/internal/pipeline"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/websocket"
 	sharedconfig "embodied-ai-proxy/shared/config"
 	"encoding/json"
@@ -37,10 +38,11 @@ func InfoHandler(cfg *sharedconfig.AppConfig, hub *websocket.Hub, p *pipeline.Pi
 }
 
 type promptRequestPayload struct {
-	Prompt                string   `json:"prompt"`
-	AvailableObjects      []string `json:"available_objects"`
-	AvailableMovements    []string `json:"available_movements"`
-	AvailableOrientations []string `json:"available_orientations"`
+	Prompt                string               `json:"prompt"`
+	AvailableObjects      []string             `json:"available_objects"`
+	AvailableMovements    []string             `json:"available_movements"`
+	AvailableOrientations []string             `json:"available_orientations"`
+	TableBounds           rosbridge.TableBounds `json:"table_bounds"`
 }
 
 // PromptHandler exposes the prompt pipeline over HTTP as POST /api/prompt,
@@ -68,7 +70,7 @@ func PromptHandler(p *pipeline.Pipeline) http.HandlerFunc {
 			return
 		}
 
-		result := p.Run(r.Context(), payload.Prompt, payload.AvailableObjects, payload.AvailableMovements, payload.AvailableOrientations)
+		result := p.Run(r.Context(), payload.Prompt, payload.AvailableObjects, payload.AvailableMovements, payload.AvailableOrientations, payload.TableBounds)
 		if result.Error != "" && result.RawOutput == "" {
 			w.WriteHeader(http.StatusBadGateway) // transport/upstream failure, not a validation failure
 		} else {

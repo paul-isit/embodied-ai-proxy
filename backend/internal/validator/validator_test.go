@@ -79,3 +79,108 @@ func TestValidator_RejectsMalformedJSON(t *testing.T) {
 		t.Error("Validate() error = nil, want error for malformed JSON")
 	}
 }
+
+func TestValidator_PushAcceptsDestination(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Push",
+		"steps": [
+			{"step_id": 1, "action": "push", "description": "push it", "parameters": {"target": "red_cube", "destination": "delivery_tray"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidator_PushAcceptsDirection(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Push",
+		"steps": [
+			{"step_id": 1, "action": "push", "description": "push it", "parameters": {"target": "red_cube", "direction": "forward", "distance": 0.3}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidator_PushRejectsNeitherDestinationNorDirection(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Push",
+		"steps": [
+			{"step_id": 1, "action": "push", "description": "push it", "parameters": {"target": "red_cube"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err == nil {
+		t.Error("Validate() error = nil, want error for push with neither destination nor direction")
+	}
+}
+
+func TestValidator_PushRejectsInvalidDirection(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Push",
+		"steps": [
+			{"step_id": 1, "action": "push", "description": "push it", "parameters": {"target": "red_cube", "direction": "sideways"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err == nil {
+		t.Error("Validate() error = nil, want error for invalid direction enum value")
+	}
+}
+
+func TestValidator_ThrowAcceptsDirection(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Throw",
+		"steps": [
+			{"step_id": 1, "action": "throw", "description": "throw it", "parameters": {"target": "red_cube", "direction": "left"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidator_ThrowRejectsNeitherDestinationNorDirection(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Throw",
+		"steps": [
+			{"step_id": 1, "action": "throw", "description": "throw it", "parameters": {"target": "red_cube"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err == nil {
+		t.Error("Validate() error = nil, want error for throw with neither destination nor direction")
+	}
+}
+
+func TestValidator_PourAcceptsAmount(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Pour",
+		"steps": [
+			{"step_id": 1, "action": "pour", "description": "pour it", "parameters": {"target": "mug", "amount": 0.5}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}

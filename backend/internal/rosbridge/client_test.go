@@ -23,6 +23,7 @@ type mockObserver struct {
 	objectsList      [][]string
 	movementsList    [][]string
 	orientationsList [][]string
+	tableBoundsList  []TableBounds
 	telemetryMsg     []string
 }
 
@@ -48,6 +49,12 @@ func (m *mockObserver) OnOrientationsUpdated(orientations []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.orientationsList = append(m.orientationsList, orientations)
+}
+
+func (m *mockObserver) OnTableBoundsUpdated(bounds TableBounds) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tableBoundsList = append(m.tableBoundsList, bounds)
 }
 
 func (m *mockObserver) OnTelemetry(msg json.RawMessage) {
@@ -87,6 +94,11 @@ func TestClient_Connect_SubscribesAndFetchesObjects(t *testing.T) {
 							"object_list":       []string{"red_cube", "blue_tray"},
 							"movement_names":    []string{"move_upwards", "retreat"},
 							"orientation_names": []string{"facing_forward", "tilted_for_pour"},
+							"has_table_bounds":  true,
+							"table_x_min":       -0.6,
+							"table_x_max":       0.6,
+							"table_y_min":       -0.4,
+							"table_y_max":       0.4,
 						},
 					})
 				}
@@ -130,6 +142,12 @@ func TestClient_Connect_SubscribesAndFetchesObjects(t *testing.T) {
 	orients := client.GetAvailableOrientations()
 	if len(orients) != 2 || orients[0] != "facing_forward" || orients[1] != "tilted_for_pour" {
 		t.Errorf("GetAvailableOrientations() = %v, want [facing_forward, tilted_for_pour]", orients)
+	}
+
+	bounds := client.GetTableBounds()
+	want := TableBounds{Available: true, XMin: -0.6, XMax: 0.6, YMin: -0.4, YMax: 0.4}
+	if bounds != want {
+		t.Errorf("GetTableBounds() = %+v, want %+v", bounds, want)
 	}
 }
 

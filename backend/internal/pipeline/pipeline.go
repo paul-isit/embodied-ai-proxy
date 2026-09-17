@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	"encoding/json"
@@ -19,6 +20,7 @@ type ROSBridge interface {
 	GetAvailableObjects() []string
 	GetAvailableMovements() []string
 	GetAvailableOrientations() []string
+	GetTableBounds() rosbridge.TableBounds
 	ExecuteRecipe(ctx context.Context, recipeJSON []byte) error
 }
 
@@ -111,8 +113,8 @@ type Result struct {
 // Run builds the prompt, dispatches it to the LLM proxy, and validates the
 // result. It does not touch the WebSocket hub - callers decide what to do
 // with the outcome.
-func (p *Pipeline) Run(ctx context.Context, userText string, objects, movements, orientations []string) Result {
-	fullPrompt := p.buildPrompt(userText, objects, movements, orientations)
+func (p *Pipeline) Run(ctx context.Context, userText string, objects, movements, orientations []string, tableBounds rosbridge.TableBounds) Result {
+	fullPrompt := p.buildPrompt(userText, objects, movements, orientations, tableBounds)
 	log.Printf("[Pipeline] command received: %q", userText)
 
 	rawOutput, err := p.callLLMProxy(ctx, fullPrompt)
