@@ -305,6 +305,14 @@
                         "description": "Direction to push the object by, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
                       },
                       "distance": { "$ref": "#/$defs/distance" },
+                      "orientation": {
+                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
+                        "description": "Orientation to level to before pushing, keeping the gripper flat and parallel to the table throughout. Defaults to 'facing_forward' if omitted."
+                      },
+                      "height_offset": {
+                        "allOf": [{ "$ref": "#/$defs/offset" }],
+                        "description": "Adjustment to the approach/push height, added to the object's own resting height. Defaults to 0.0 (unchanged) - lowering this brings the gripper closer to the table and raises collision risk, so only lower it a little at a time and only if asked to push closer to the table surface."
+                      },
                       "close_position": {
                         "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
                         "description": "How far the gripper closes to act as a flat pushing surface. Defaults to 0.5 if omitted."
@@ -348,6 +356,14 @@
                       "release_clearance": {
                         "allOf": [{ "$ref": "#/$defs/offset" }],
                         "description": "Height above the destination to release from. Defaults to 0.15 if omitted."
+                      },
+                      "wind_up_distance": {
+                        "allOf": [{ "$ref": "#/$defs/distance" }],
+                        "description": "How far to retreat back (opposite the throw direction) before pitching forward, like cocking the arm back for a pitch. Defaults to 0.15 if omitted."
+                      },
+                      "wind_up_height": {
+                        "allOf": [{ "$ref": "#/$defs/offset" }],
+                        "description": "How far to raise up during the wind-up, above the held object's original height. Defaults to 0.1 if omitted."
                       },
                       "open_position": {
                         "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
