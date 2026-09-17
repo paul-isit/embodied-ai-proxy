@@ -199,3 +199,33 @@ func TestValidator_ThrowAcceptsWindUpAndFlingAngles(t *testing.T) {
 		t.Errorf("Validate() error = %v, want nil", err)
 	}
 }
+
+func TestValidator_ThrowAcceptsJoint2RockAngle(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Throw",
+		"steps": [
+			{"step_id": 1, "action": "throw", "description": "throw it", "parameters": {"target": "red_cube", "direction": "forward", "wind_up_angle": 3.927, "fling_angle": 0.0, "joint_2_rock_angle": 0.2618}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidator_ThrowRejectsNegativeSwingAngle(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Throw",
+		"steps": [
+			{"step_id": 1, "action": "throw", "description": "throw it", "parameters": {"target": "red_cube", "direction": "forward", "wind_up_angle": -1.0}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err == nil {
+		t.Error("Validate() error = nil, want error for a negative wind_up_angle")
+	}
+}

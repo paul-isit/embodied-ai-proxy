@@ -41,6 +41,12 @@
       "maximum": 3.15,
       "description": "Angle in radians, applied as an orientation delta from the arm's current pose."
     },
+    "swingAngle": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 6.3,
+      "description": "Magnitude in radians of a joint swing for 'throw' (elbow wind-up/fling, or shoulder rocking) - wider than angleRadians since a wind-up needs to swing past facing directly backward, not just tilt part of the way there."
+    },
     "direction": {
       "type": "string",
       "enum": ["forward", "backward", "left", "right"],
@@ -357,17 +363,21 @@
                         "description": "Only used with 'direction', to compute which way to face before swinging - the actual distance thrown is governed by 'wind_up_angle'/'fling_angle'/'speed', not this value directly. Defaults to 0.3 if omitted."
                       },
                       "wind_up_angle": {
-                        "allOf": [{ "$ref": "#/$defs/angleRadians" }],
-                        "description": "How far to rotate the elbow back, away from the throw direction, before flinging forward - like cocking the arm for a pitch. Defaults to 0.7854 (45 degrees) if omitted."
+                        "allOf": [{ "$ref": "#/$defs/swingAngle" }],
+                        "description": "How far to swing the elbow back past facing directly backward, before flinging forward - like cocking the arm for a pitch. Defaults to 3.927 (225 degrees: 180 to face backward, plus 45 further) if omitted."
                       },
                       "fling_angle": {
-                        "allOf": [{ "$ref": "#/$defs/angleRadians" }],
-                        "description": "How far to swing the elbow forward past the faced pose during the fling. Larger throws further (along with a higher 'speed'). Defaults to 0.7854 (45 degrees) if omitted."
+                        "allOf": [{ "$ref": "#/$defs/swingAngle" }],
+                        "description": "How far the elbow swings forward past the faced pose during the fling, on top of resetting there from the wind-up. Defaults to 0.0 (resets effectively to the faced pose) if omitted; raise it for an even harder throw."
+                      },
+                      "joint_2_rock_angle": {
+                        "allOf": [{ "$ref": "#/$defs/swingAngle" }],
+                        "description": "How far the shoulder (joint_2) rocks back during the wind-up and forward during the fling, in step with the elbow, to exaggerate the throwing motion. Defaults to 0.2618 (15 degrees) if omitted."
                       },
                       "release_delay": {
                         "type": "number",
                         "minimum": 0.0,
-                        "description": "Seconds to wait after starting the fling before releasing the gripper - the release happens mid-swing, not after the arm stops. Defaults to 0.25 if omitted."
+                        "description": "Seconds to wait after starting the fling before releasing the gripper - the release happens mid-swing, not after the arm stops. Defaults to roughly half the estimated fling duration (scaled to 'wind_up_angle'/'fling_angle'/'speed') if omitted - only set this directly if that default timing looks wrong once observed."
                       },
                       "open_position": {
                         "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
