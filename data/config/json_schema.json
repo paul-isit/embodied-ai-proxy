@@ -352,24 +352,31 @@
                         "allOf": [{ "$ref": "#/$defs/direction" }],
                         "description": "Direction to throw the object in, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
                       },
-                      "distance": { "$ref": "#/$defs/distance" },
-                      "release_clearance": {
-                        "allOf": [{ "$ref": "#/$defs/offset" }],
-                        "description": "Height above the destination to release from. Defaults to 0.15 if omitted."
-                      },
-                      "wind_up_distance": {
+                      "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
-                        "description": "How far to retreat back (opposite the throw direction) before pitching forward, like cocking the arm back for a pitch. Defaults to 0.15 if omitted."
+                        "description": "Only used with 'direction', to compute which way to face before swinging - the actual distance thrown is governed by 'wind_up_angle'/'fling_angle'/'speed', not this value directly. Defaults to 0.3 if omitted."
                       },
-                      "wind_up_height": {
-                        "allOf": [{ "$ref": "#/$defs/offset" }],
-                        "description": "How far to raise up during the wind-up, above the held object's original height. Defaults to 0.1 if omitted."
+                      "wind_up_angle": {
+                        "allOf": [{ "$ref": "#/$defs/angleRadians" }],
+                        "description": "How far to rotate the elbow back, away from the throw direction, before flinging forward - like cocking the arm for a pitch. Defaults to 0.7854 (45 degrees) if omitted."
+                      },
+                      "fling_angle": {
+                        "allOf": [{ "$ref": "#/$defs/angleRadians" }],
+                        "description": "How far to swing the elbow forward past the faced pose during the fling. Larger throws further (along with a higher 'speed'). Defaults to 0.7854 (45 degrees) if omitted."
+                      },
+                      "release_delay": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "description": "Seconds to wait after starting the fling before releasing the gripper - the release happens mid-swing, not after the arm stops. Defaults to 0.25 if omitted."
                       },
                       "open_position": {
                         "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
                         "description": "Gripper position to release to. Defaults to 0.0 (open) if omitted."
                       },
-                      "speed": { "$ref": "#/$defs/speedScale" }
+                      "speed": {
+                        "allOf": [{ "$ref": "#/$defs/speedScale" }],
+                        "description": "Velocity/acceleration scale for the fling specifically (the face and wind-up moves use their own fixed, slower speeds). Defaults to 1.0 (full speed) if omitted."
+                      }
                     },
                     "required": ["target"],
                     "anyOf": [

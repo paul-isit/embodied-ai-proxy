@@ -184,3 +184,18 @@ func TestValidator_PourAcceptsAmount(t *testing.T) {
 		t.Errorf("Validate() error = %v, want nil", err)
 	}
 }
+
+func TestValidator_ThrowAcceptsWindUpAndFlingAngles(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Throw",
+		"steps": [
+			{"step_id": 1, "action": "throw", "description": "throw it", "parameters": {"target": "red_cube", "direction": "forward", "wind_up_angle": 0.5, "fling_angle": 1.0, "release_delay": 0.3}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
