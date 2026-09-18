@@ -13,6 +13,7 @@ import (
 const (
 	defaultLLMTimeout       = 60 * time.Second
 	defaultExecutionTimeout = 120 * time.Second
+	workspaceRefreshTimeout = 5 * time.Second
 )
 
 // HandlePrompt implements websocket.PromptHandler: it runs the pipeline
@@ -28,10 +29,18 @@ func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 	var availableObjs, availableMvts, availableOrients []string
 	var tableBounds rosbridge.TableBounds
 	if p.bridge != nil {
-		availableObjs = p.bridge.GetAvailableObjects()
-		availableMvts = p.bridge.GetAvailableMovements()
-		availableOrients = p.bridge.GetAvailableOrientations()
-		tableBounds = p.bridge.GetTableBounds()
+		refreshCtx, refreshCancel := context.WithTimeout(ctx, workspaceRefreshTimeout)
+		objs, mvts, orients, bounds, err := p.bridge.RefreshWorkspaceParams(refreshCtx)
+		refreshCancel()
+		if err != nil {
+			log.Printf("[Pipeline] command %q: workspace params refresh failed, falling back to cached values: %v", userText, err)
+			availableObjs = p.bridge.GetAvailableObjects()
+			availableMvts = p.bridge.GetAvailableMovements()
+			availableOrients = p.bridge.GetAvailableOrientations()
+			tableBounds = p.bridge.GetTableBounds()
+		} else {
+			availableObjs, availableMvts, availableOrients, tableBounds = objs, mvts, orients, bounds
+		}
 	}
 
 	llmCtx, llmCancel := context.WithTimeout(ctx, defaultLLMTimeout)

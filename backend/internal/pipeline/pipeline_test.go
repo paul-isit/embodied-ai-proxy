@@ -79,6 +79,8 @@ type mockROSBridge struct {
 	orientations []string
 	tableBounds  rosbridge.TableBounds
 	executed     [][]byte
+	refreshCount int
+	refreshErr   error
 }
 
 func (m *mockROSBridge) IsConnected() bool {
@@ -109,6 +111,16 @@ func (m *mockROSBridge) GetTableBounds() rosbridge.TableBounds {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tableBounds
+}
+
+func (m *mockROSBridge) RefreshWorkspaceParams(ctx context.Context) ([]string, []string, []string, rosbridge.TableBounds, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refreshCount++
+	if m.refreshErr != nil {
+		return nil, nil, nil, rosbridge.TableBounds{}, m.refreshErr
+	}
+	return m.objects, m.movements, m.orientations, m.tableBounds, nil
 }
 
 func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
@@ -192,6 +204,62 @@ func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndExecutesOnBridge(t *test
 	}
 }
 
+func TestPipeline_HandlePrompt_RefreshesWorkspaceParamsEachCall(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
+	defer llmProxy.Close()
+
+	hub := websocket.NewHub()
+	bridge := &mockROSBridge{connected: true, objects: []string{"red_cube"}}
+	p := New(hub, bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/client", hub.ServeClient)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	clientWS := dialTestWS(t, server.URL, "/ws/client")
+	time.Sleep(50 * time.Millisecond)
+
+	p.HandlePrompt(context.Background(), "go home")
+	readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
+
+	p.HandlePrompt(context.Background(), "go home again")
+	readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.refreshCount != 2 {
+		t.Errorf("refreshCount = %d, want 2 (workspace params should be re-fetched on every prompt)", bridge.refreshCount)
+	}
+}
+
+func TestPipeline_HandlePrompt_FallsBackToCachedParamsOnRefreshError(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
+	defer llmProxy.Close()
+
+	hub := websocket.NewHub()
+	bridge := &mockROSBridge{
+		connected:  true,
+		objects:    []string{"red_cube"},
+		refreshErr: errors.New("rosbridge service call timed out"),
+	}
+	p := New(hub, bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/client", hub.ServeClient)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	clientWS := dialTestWS(t, server.URL, "/ws/client")
+	time.Sleep(50 * time.Millisecond)
+
+	p.HandlePrompt(context.Background(), "go home")
+
+	// Despite the refresh failing, the prompt should still complete using
+	// whatever was previously cached, not abort outright.
+	readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
+}
+
 func TestPipeline_HandlePrompt_ExecutionFailure_BroadcastsErrorWithoutActionRecipe(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
 	defer llmProxy.Close()
@@ -232,11 +300,14 @@ type failingROSBridge struct {
 	connected bool
 }
 
-func (f *failingROSBridge) IsConnected() bool                          { return f.connected }
-func (f *failingROSBridge) GetAvailableObjects() []string              { return nil }
-func (f *failingROSBridge) GetAvailableMovements() []string            { return nil }
-func (f *failingROSBridge) GetAvailableOrientations() []string         { return nil }
-func (f *failingROSBridge) GetTableBounds() rosbridge.TableBounds      { return rosbridge.TableBounds{} }
+func (f *failingROSBridge) IsConnected() bool                     { return f.connected }
+func (f *failingROSBridge) GetAvailableObjects() []string         { return nil }
+func (f *failingROSBridge) GetAvailableMovements() []string       { return nil }
+func (f *failingROSBridge) GetAvailableOrientations() []string    { return nil }
+func (f *failingROSBridge) GetTableBounds() rosbridge.TableBounds { return rosbridge.TableBounds{} }
+func (f *failingROSBridge) RefreshWorkspaceParams(ctx context.Context) ([]string, []string, []string, rosbridge.TableBounds, error) {
+	return nil, nil, nil, rosbridge.TableBounds{}, nil
+}
 func (f *failingROSBridge) ExecuteRecipe(ctx context.Context, recipe []byte) error {
 	return errors.New("gripper jammed")
 }

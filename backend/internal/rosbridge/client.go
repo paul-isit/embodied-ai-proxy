@@ -221,22 +221,24 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		"type":  "kinova_interfaces/msg/SystemSummary",
 	})
 
-	// Fetch initial workspace objects and movements once on connect
+	// Fetch initial workspace objects and movements on connect. This is
+	// only a best-effort warm start for the cache (e.g. for the TUI
+	// sidebar before any prompt has been submitted) - callers handling an
+	// actual prompt should call RefreshWorkspaceParams themselves rather
+	// than rely on this snapshot, since the middleware may not have been
+	// up yet when this ran.
 	go func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if objs, mvts, orients, bounds, err := c.FetchWorkspaceParams(fetchCtx); err == nil {
-			log.Printf("[Rosbridge] workspace objects fetched: %v", objs)
-			log.Printf("[Rosbridge] workspace movements fetched: %v", mvts)
-			log.Printf("[Rosbridge] workspace orientation presets fetched: %v", orients)
-			log.Printf("[Rosbridge] table bounds fetched: %+v", bounds)
-			c.setAvailableObjects(objs)
-			c.setAvailableMovements(mvts)
-			c.setAvailableOrientations(orients)
-			c.setTableBounds(bounds)
-		} else {
+		objs, mvts, orients, bounds, err := c.RefreshWorkspaceParams(fetchCtx)
+		if err != nil {
 			log.Printf("[Rosbridge] initial workspace params fetch warning: %v", err)
+			return
 		}
+		log.Printf("[Rosbridge] workspace objects fetched: %v", objs)
+		log.Printf("[Rosbridge] workspace movements fetched: %v", mvts)
+		log.Printf("[Rosbridge] workspace orientation presets fetched: %v", orients)
+		log.Printf("[Rosbridge] table bounds fetched: %+v", bounds)
 	}()
 
 	// Read and dispatch incoming messages
@@ -321,6 +323,25 @@ func (c *Client) CallService(ctx context.Context, service string, args any) (jso
 		}
 		return resp.Values, nil
 	}
+}
+
+// RefreshWorkspaceParams queries FetchWorkspaceParams and, on success,
+// updates the cached values returned by GetAvailableObjects/etc (notifying
+// the observer, so e.g. the TUI sidebar also sees the fresh list). Callers
+// that need an up-to-date view right before using it - rather than
+// whatever was cached at connect time - should call this instead of the
+// Get* getters.
+func (c *Client) RefreshWorkspaceParams(ctx context.Context) (objects, movements, orientations []string, tableBounds TableBounds, err error) {
+	objects, movements, orientations, tableBounds, err = c.FetchWorkspaceParams(ctx)
+	if err != nil {
+		return nil, nil, nil, TableBounds{}, err
+	}
+
+	c.setAvailableObjects(objects)
+	c.setAvailableMovements(movements)
+	c.setAvailableOrientations(orientations)
+	c.setTableBounds(tableBounds)
+	return objects, movements, orientations, tableBounds, nil
 }
 
 // FetchWorkspaceParams queries the /get_robot_parameters ROS service for the

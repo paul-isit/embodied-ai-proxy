@@ -21,6 +21,7 @@ type ROSBridge interface {
 	GetAvailableMovements() []string
 	GetAvailableOrientations() []string
 	GetTableBounds() rosbridge.TableBounds
+	RefreshWorkspaceParams(ctx context.Context) (objects, movements, orientations []string, tableBounds rosbridge.TableBounds, err error)
 	ExecuteRecipe(ctx context.Context, recipeJSON []byte) error
 }
 
