@@ -1,27 +1,23 @@
 import argparse
+
+import requests
 import yaml
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent
-sys.path.append(str(ROOT / "src"))
-
-from backend.llm_proxy import LLMProxy
 
 # ── Argument Parser ───────────────────────────────────────────────
 def parse_args():
     """
     Parses command line arguments passed in by the researcher.
     Example:
-        python evaluate_proxy.py --config configs/ --tests tests/test_cases.yaml
+        python evaluate_proxy.py --api-url http://localhost:8080 --tests tests/test_cases.yaml
     """
     parser = argparse.ArgumentParser(description="LLM Proxy Test Runner")
 
     parser.add_argument(
-        "--config-dir",
+        "--api-url",
         type=str,
-        required=True,
-        help="Path to the directory containing the context config files"
+        default="http://localhost:8080",
+        help="Base URL of the Go backend API (default: http://localhost:8080)"
     )
     parser.add_argument(
         "--tests",
@@ -49,6 +45,22 @@ def load_test_cases(test_path: str) -> list:
     except yaml.YAMLError as e:
         print(f"Invalid YAML in test file: {e}")
         raise
+
+# ── Call Go Backend API ───────────────────────────────────────────
+def call_prompt_api(api_url: str, prompt: str, objects: list) -> dict:
+    """
+    Sends a prompt to the Go backend's POST /api/prompt endpoint and returns
+    the decoded JSON response: {"raw_output": str, "parsed": dict|None,
+    "error": str|None}. Regardless of HTTP status (200/400/502), the body is
+    valid JSON in this shape.
+    """
+    url = f"{api_url.rstrip('/')}/api/prompt"
+    response = requests.post(
+        url,
+        json={"prompt": prompt, "available_objects": objects},
+        timeout=60,
+    )
+    return response.json()
 
 # ── Validate Response ─────────────────────────────────────────────
 def validate_response(test_case: dict, result: dict) -> tuple[bool, list[str]]:
@@ -112,9 +124,10 @@ def validate_response(test_case: dict, result: dict) -> tuple[bool, list[str]]:
     return passed, failures
 
 # ── Run Tests ─────────────────────────────────────────────────────
-def run_tests(proxy: LLMProxy, test_cases: list) -> None:
+def run_tests(api_url: str, test_cases: list) -> None:
     """
-    Runs all test cases and prints a summary report.
+    Runs all test cases against the Go backend API and prints a summary
+    report.
     """
     passed_count = 0
     failed_count = 0
@@ -133,10 +146,17 @@ def run_tests(proxy: LLMProxy, test_cases: list) -> None:
         print(f"Prompt: \"{prompt}\"")
 
         try:
-            # Uses generate() — no ROS2 bridge needed
-            result = proxy.generate(prompt, objects)
-            wrapped = {"json": result["parsed"] if isinstance(result["parsed"], dict) else result["parsed"].model_dump()}
+            # Calls the Go backend's HTTP endpoint — no ROS2 bridge needed
+            result = call_prompt_api(api_url, prompt, objects)
+            error = result.get("error")
+            parsed = result.get("parsed")
 
+            if not isinstance(parsed, dict) and error:
+                # Mirrors the old code's `except Exception as e` path: the
+                # backend couldn't produce a valid parsed recipe.
+                raise RuntimeError(error)
+
+            wrapped = {"json": parsed}
             passed, failures = validate_response(test_case, wrapped)
 
             if passed:
@@ -148,6 +168,16 @@ def run_tests(proxy: LLMProxy, test_cases: list) -> None:
                     print(f"    → {failure}")
                 print()
                 failed_count += 1
+
+        except requests.exceptions.ConnectionError:
+            print(f"  Result: FAIL (Connection Error)")
+            print(
+                f"  Error: Could not reach the Go backend at {api_url}. "
+                f"Is it running? (start it, then pass --api-url)\n"
+            )
+            failed_count += 1
+            passed = False
+            failures = [f"Could not connect to backend at {api_url}"]
 
         except Exception as e:
             print(f"  Result: FAIL (Exception)")
@@ -184,15 +214,13 @@ def run_tests(proxy: LLMProxy, test_cases: list) -> None:
 def main():
     args = parse_args()
 
-    print(f"Loading config from: {args.config_dir}")
-    proxy = LLMProxy(args.config_dir)
-    print(f"Proxy initialized successfully.")
+    print(f"Targeting Go backend API at: {args.api_url}")
 
     print(f"Loading test cases from: {args.tests}")
     test_cases = load_test_cases(args.tests)
     print(f"Found {len(test_cases)} test cases")
 
-    run_tests(proxy, test_cases)
+    run_tests(args.api_url, test_cases)
 
 if __name__ == "__main__":
     main()
