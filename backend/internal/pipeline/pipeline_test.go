@@ -113,14 +113,19 @@ func (m *mockROSBridge) GetTableBounds() rosbridge.TableBounds {
 	return m.tableBounds
 }
 
-func (m *mockROSBridge) RefreshWorkspaceParams(ctx context.Context) ([]string, []string, []string, rosbridge.TableBounds, error) {
+func (m *mockROSBridge) RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.refreshCount++
 	if m.refreshErr != nil {
-		return nil, nil, nil, rosbridge.TableBounds{}, m.refreshErr
+		return rosbridge.EnvironmentParams{}, m.refreshErr
 	}
-	return m.objects, m.movements, m.orientations, m.tableBounds, nil
+	return rosbridge.EnvironmentParams{
+		Objects:      m.objects,
+		Movements:    m.movements,
+		Orientations: m.orientations,
+		TableBounds:  m.tableBounds,
+	}, nil
 }
 
 func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
@@ -137,7 +142,12 @@ func TestPipeline_Run_ValidRecipe(t *testing.T) {
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "go home", []string{"red_cube"}, []string{"move_upwards"}, []string{"facing_forward"}, rosbridge.TableBounds{Available: true, XMin: -0.6, XMax: 0.6, YMin: -0.4, YMax: 0.4})
+	result := p.Run(context.Background(), "go home", rosbridge.EnvironmentParams{
+		Objects:      []string{"red_cube"},
+		Movements:    []string{"move_upwards"},
+		Orientations: []string{"facing_forward"},
+		TableBounds:  rosbridge.TableBounds{Available: true, XMin: -0.6, XMax: 0.6, YMin: -0.4, YMax: 0.4},
+	})
 
 	if result.Error != "" {
 		t.Fatalf("Run() error = %q", result.Error)
@@ -152,7 +162,7 @@ func TestPipeline_Run_InvalidRecipeFailsSchemaValidation(t *testing.T) {
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "go home", nil, nil, nil, rosbridge.TableBounds{})
+	result := p.Run(context.Background(), "go home", rosbridge.EnvironmentParams{})
 
 	if result.Error == "" {
 		t.Fatal("expected schema validation error, got none")
@@ -164,7 +174,7 @@ func TestPipeline_Run_StripsMarkdownFences(t *testing.T) {
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "pick up cube", nil, nil, nil, rosbridge.TableBounds{})
+	result := p.Run(context.Background(), "pick up cube", rosbridge.EnvironmentParams{})
 
 	if result.Error != "" {
 		t.Fatalf("Run() error = %q", result.Error)
@@ -204,7 +214,7 @@ func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndExecutesOnBridge(t *test
 	}
 }
 
-func TestPipeline_HandlePrompt_RefreshesWorkspaceParamsEachCall(t *testing.T) {
+func TestPipeline_HandlePrompt_RefreshesEnvironmentParamsEachCall(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
 	defer llmProxy.Close()
 
@@ -229,7 +239,7 @@ func TestPipeline_HandlePrompt_RefreshesWorkspaceParamsEachCall(t *testing.T) {
 	bridge.mu.Lock()
 	defer bridge.mu.Unlock()
 	if bridge.refreshCount != 2 {
-		t.Errorf("refreshCount = %d, want 2 (workspace params should be re-fetched on every prompt)", bridge.refreshCount)
+		t.Errorf("refreshCount = %d, want 2 (environment params should be re-fetched on every prompt)", bridge.refreshCount)
 	}
 }
 
@@ -305,8 +315,8 @@ func (f *failingROSBridge) GetAvailableObjects() []string         { return nil }
 func (f *failingROSBridge) GetAvailableMovements() []string       { return nil }
 func (f *failingROSBridge) GetAvailableOrientations() []string    { return nil }
 func (f *failingROSBridge) GetTableBounds() rosbridge.TableBounds { return rosbridge.TableBounds{} }
-func (f *failingROSBridge) RefreshWorkspaceParams(ctx context.Context) ([]string, []string, []string, rosbridge.TableBounds, error) {
-	return nil, nil, nil, rosbridge.TableBounds{}, nil
+func (f *failingROSBridge) RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error) {
+	return rosbridge.EnvironmentParams{}, nil
 }
 func (f *failingROSBridge) ExecuteRecipe(ctx context.Context, recipe []byte) error {
 	return errors.New("gripper jammed")

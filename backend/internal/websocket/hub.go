@@ -101,6 +101,7 @@ func (h *Hub) OnMovementsUpdated(movements []string) {
 func (h *Hub) OnOrientationsUpdated(orientations []string) {
 	payload, err := json.Marshal(map[string]any{"orientation_names": orientations})
 	if err != nil {
+		log.Printf("[Hub] failed to marshal orientation_names update: %v", err)
 		return
 	}
 	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})
@@ -110,6 +111,7 @@ func (h *Hub) OnOrientationsUpdated(orientations []string) {
 func (h *Hub) OnTableBoundsUpdated(bounds rosbridge.TableBounds) {
 	payload, err := json.Marshal(map[string]any{"table_bounds": bounds})
 	if err != nil {
+		log.Printf("[Hub] failed to marshal table_bounds update: %v", err)
 		return
 	}
 	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})

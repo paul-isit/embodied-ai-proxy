@@ -54,7 +54,7 @@
     "graspStyle": {
       "type": "string",
       "enum": ["side"],
-      "description": "'side' computes and verifies a flat, side-on grasp from the object's own shape/pose (BOX shapes only currently) - each candidate is checked reachable/collision-free before use, not assumed from a fixed preset. Omit for the default: unconstrained orientation at the object's exact center, whatever the planner picks."
+      "description": "'side' computes and verifies a flat, side-on grasp from the object's own shape/pose (BOX or CYLINDER shapes) - each candidate is checked reachable/collision-free before use, not assumed from a fixed preset. Omit for the default: unconstrained orientation at the object's exact center, whatever the planner picks."
     },
     "graspOffset": {
       "type": "object",
@@ -439,7 +439,7 @@
     },
     {
       "type": "object",
-      "description": "ERROR: an object is missing, ambiguous, or the command violates workspace constraints.",
+      "description": "ERROR: an object is missing, ambiguous, or the command violates environment constraints.",
       "properties": {
         "status": { "const": "error" },
         "error_type": {

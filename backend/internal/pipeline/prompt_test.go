@@ -27,7 +27,9 @@ func TestFormatTableBounds_Unavailable(t *testing.T) {
 func TestBuildPrompt_SubstitutesTableBounds(t *testing.T) {
 	p := &Pipeline{systemPrompt: testSystemPrompt, schemaBlock: "{}"}
 
-	got := p.buildPrompt("go home", nil, nil, nil, rosbridge.TableBounds{Available: true, XMin: -0.6, XMax: 0.6, YMin: -0.4, YMax: 0.4})
+	got := p.buildPrompt("go home", rosbridge.EnvironmentParams{
+		TableBounds: rosbridge.TableBounds{Available: true, XMin: -0.6, XMax: 0.6, YMin: -0.4, YMax: 0.4},
+	})
 
 	if strings.Contains(got, "{table_bounds}") {
 		t.Errorf("buildPrompt() left the {table_bounds} placeholder unsubstituted: %q", got)

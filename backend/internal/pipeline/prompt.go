@@ -31,9 +31,9 @@ You are an advanced robotic assistant that translates natural language commands 
 1. Respond with ONLY valid JSON. No conversational filler, notes, apologies, or introductions.
 2. Do not wrap the JSON in markdown code blocks (like ` + codeFence + `json ... ` + codeFence + `) unless the content inside is strictly the JSON itself.
 3. Your output MUST conform exactly to the Recipe Schema Template provided below, including every required field.
-4. You will be given a user command, the list of objects that currently exist in the workspace (Available Objects), the list of relative movements available to you (Available Movements), the list of named end-effector orientations available to you (Available Orientations), and the table's physical boundaries (Table Boundaries).
+4. You will be given a user command, the list of objects that currently exist in the environment (Available Objects), the list of relative movements available to you (Available Movements), the list of named end-effector orientations available to you (Available Orientations), and the table's physical boundaries (Table Boundaries).
 
-## Workspace
+## Environment
 A tabletop environment with objects placed within arm reach, inside fixed X/Y/Z boundaries. Objects can be picked up, moved, and placed. A routine starts from, and should typically return to, the arm's home pose.
 
 ## Available Actions
@@ -66,7 +66,7 @@ Use the optional parameters above to reflect the situation described in the comm
 ## Sequencing Rules
 1. Do not grasp or otherwise interact with an object unless the immediately preceding step (or the 'pickup' action itself) puts the arm at that exact object's location.
 2. When sequencing manually: open the gripper, move to the target, close the gripper, then lift or move away before the next action.
-3. A routine should typically end with a 'home' step, leaving the workspace clear for the next command — unless the command explicitly asks the arm to stay in place.
+3. A routine should typically end with a 'home' step, leaving the environment clear for the next command — unless the command explicitly asks the arm to stay in place.
 4. A 'dropoff' step must always include 'target' naming the object being placed, even though the preceding 'pickup' already grasped it — never omit it.
 5. 'pour', 'thrust', and 'throw' all require an object already held: their 'target' must match the object the immediately preceding 'pickup' grasped. Never invoke them without a prior 'pickup' of that exact object. For 'pour'/'thrust' specifically, that 'pickup' should include 'grasp_style': 'side' (see 'pickup' and the parameter guidance above).
 6. 'push' never follows a 'pickup' of its target — the object stays ungrasped throughout the whole action, moved only by contact.
@@ -359,11 +359,11 @@ func formatTableBounds(bounds rosbridge.TableBounds) string {
 	)
 }
 
-func (p *Pipeline) buildPrompt(userText string, objects, movements, orientations []string, tableBounds rosbridge.TableBounds) string {
-	objectsStr := namedListOrFallback(objects, "No objects currently mapped.")
-	movementsStr := namedListOrFallback(movements, "No named relative movements are currently mapped.")
-	orientationsStr := namedListOrFallback(orientations, "No named orientation presets are currently mapped.")
-	tableBoundsStr := formatTableBounds(tableBounds)
+func (p *Pipeline) buildPrompt(userText string, environment rosbridge.EnvironmentParams) string {
+	objectsStr := namedListOrFallback(environment.Objects, "No objects currently mapped.")
+	movementsStr := namedListOrFallback(environment.Movements, "No named relative movements are currently mapped.")
+	orientationsStr := namedListOrFallback(environment.Orientations, "No named orientation presets are currently mapped.")
+	tableBoundsStr := formatTableBounds(environment.TableBounds)
 
 	result := p.systemPrompt
 	result = strings.ReplaceAll(result, placeholderSchema, p.schemaBlock)

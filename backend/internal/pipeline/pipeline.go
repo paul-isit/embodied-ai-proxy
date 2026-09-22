@@ -21,7 +21,7 @@ type ROSBridge interface {
 	GetAvailableMovements() []string
 	GetAvailableOrientations() []string
 	GetTableBounds() rosbridge.TableBounds
-	RefreshWorkspaceParams(ctx context.Context) (objects, movements, orientations []string, tableBounds rosbridge.TableBounds, err error)
+	RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error)
 	ExecuteRecipe(ctx context.Context, recipeJSON []byte) error
 }
 
@@ -114,8 +114,8 @@ type Result struct {
 // Run builds the prompt, dispatches it to the LLM proxy, and validates the
 // result. It does not touch the WebSocket hub - callers decide what to do
 // with the outcome.
-func (p *Pipeline) Run(ctx context.Context, userText string, objects, movements, orientations []string, tableBounds rosbridge.TableBounds) Result {
-	fullPrompt := p.buildPrompt(userText, objects, movements, orientations, tableBounds)
+func (p *Pipeline) Run(ctx context.Context, userText string, environment rosbridge.EnvironmentParams) Result {
+	fullPrompt := p.buildPrompt(userText, environment)
 	log.Printf("[Pipeline] command received: %q", userText)
 
 	rawOutput, err := p.callLLMProxy(ctx, fullPrompt)

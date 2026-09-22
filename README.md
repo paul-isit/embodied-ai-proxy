@@ -237,7 +237,7 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 ```text
 User Input (TUI over WebSocket /ws/client or HTTP POST /api/prompt)
             ↓
-Prompt Synthesis (Go Backend: system prompt + schema + workspace objects + command)
+Prompt Synthesis (Go Backend: system prompt + schema + environment objects + command)
             ↓
 LLM Dispatch (Go LLM Proxy -> Ollama / OpenAI / Anthropic / Gemini)
             ↓
@@ -253,8 +253,8 @@ ROS2 Middleware Execution Layer (Kinova Gen3 Lite)
 ### Components
 
 1. **Go Backend** (`backend/`):
-   - Owns application state, workspace object registry, and WebSocket client hub (`/ws/client`).
-   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying workspace objects (`/get_robot_parameters`), listening to telemetry (`/system/status`), and executing action recipes (`/execute_recipe`).
+   - Owns application state, environment object registry, and WebSocket client hub (`/ws/client`).
+   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying environment objects (`/get_robot_parameters`), listening to telemetry (`/system/status`), and executing action recipes (`/execute_recipe`).
    - Uses `internal/pipeline` to build prompts, query the LLM proxy, validate output against `data/config/json_schema.json`, and dispatch action recipes.
    - Exposes `GET /api/info` (live stats, configuration, prompt) and `POST /api/prompt` (synchronous evaluation API).
 2. **Go LLM Proxy** (`llm-proxy/`):
