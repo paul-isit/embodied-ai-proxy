@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/websocket"
 	"encoding/json"
 	"fmt"
@@ -10,12 +11,13 @@ import (
 )
 
 const (
-	defaultLLMTimeout       = 60 * time.Second
-	defaultExecutionTimeout = 120 * time.Second
+	defaultLLMTimeout         = 60 * time.Second
+	defaultExecutionTimeout   = 120 * time.Second
+	environmentRefreshTimeout = 5 * time.Second
 )
 
 // HandlePrompt implements websocket.PromptHandler: it runs the pipeline
-// using the workspace object list from the robot bridge, delivers the action recipe
+// using the environment object list from the robot bridge, delivers the action recipe
 // to the connected client upon successful robot execution, and dispatches it directly to the robot.
 func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 	if p.bridge != nil && !p.bridge.IsConnected() {
@@ -24,16 +26,28 @@ func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 		return
 	}
 
-	var availableObjs, availableMvts []string
+	var environment rosbridge.EnvironmentParams
 	if p.bridge != nil {
-		availableObjs = p.bridge.GetAvailableObjects()
-		availableMvts = p.bridge.GetAvailableMovements()
+		refreshCtx, refreshCancel := context.WithTimeout(ctx, environmentRefreshTimeout)
+		fresh, err := p.bridge.RefreshEnvironmentParams(refreshCtx)
+		refreshCancel()
+		if err != nil {
+			log.Printf("[Pipeline] command %q: environment params refresh failed, falling back to cached values: %v", userText, err)
+			environment = rosbridge.EnvironmentParams{
+				Objects:      p.bridge.GetAvailableObjects(),
+				Movements:    p.bridge.GetAvailableMovements(),
+				Orientations: p.bridge.GetAvailableOrientations(),
+				TableBounds:  p.bridge.GetTableBounds(),
+			}
+		} else {
+			environment = fresh
+		}
 	}
 
 	llmCtx, llmCancel := context.WithTimeout(ctx, defaultLLMTimeout)
 	defer llmCancel()
 
-	result := p.Run(llmCtx, userText, availableObjs, availableMvts)
+	result := p.Run(llmCtx, userText, environment)
 	if ctx.Err() != nil {
 		log.Printf("[Pipeline] command %q aborted: context canceled/timed out: %v", userText, ctx.Err())
 		return

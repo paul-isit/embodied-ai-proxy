@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	"encoding/json"
@@ -71,11 +72,15 @@ func fakeLLMProxy(t *testing.T, responseText string) *httptest.Server {
 }
 
 type mockROSBridge struct {
-	mu        sync.Mutex
-	connected bool
-	objects   []string
-	movements []string
-	executed  [][]byte
+	mu           sync.Mutex
+	connected    bool
+	objects      []string
+	movements    []string
+	orientations []string
+	tableBounds  rosbridge.TableBounds
+	executed     [][]byte
+	refreshCount int
+	refreshErr   error
 }
 
 func (m *mockROSBridge) IsConnected() bool {
@@ -96,6 +101,33 @@ func (m *mockROSBridge) GetAvailableMovements() []string {
 	return m.movements
 }
 
+func (m *mockROSBridge) GetAvailableOrientations() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.orientations
+}
+
+func (m *mockROSBridge) GetTableBounds() rosbridge.TableBounds {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tableBounds
+}
+
+func (m *mockROSBridge) RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refreshCount++
+	if m.refreshErr != nil {
+		return rosbridge.EnvironmentParams{}, m.refreshErr
+	}
+	return rosbridge.EnvironmentParams{
+		Objects:      m.objects,
+		Movements:    m.movements,
+		Orientations: m.orientations,
+		TableBounds:  m.tableBounds,
+	}, nil
+}
+
 func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -103,14 +135,19 @@ func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) er
 	return nil
 }
 
-const testSystemPrompt = "Schema:\n{schema_template}\n\nObjects:\n{available_objects}\n\nMovements:\n{available_movements}\n\nCommand: {user_command}"
+const testSystemPrompt = "Schema:\n{schema_template}\n\nObjects:\n{available_objects}\n\nMovements:\n{available_movements}\n\nOrientations:\n{available_orientations}\n\nTable:\n{table_bounds}\n\nCommand: {user_command}"
 
 func TestPipeline_Run_ValidRecipe(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "go home", []string{"red_cube"}, []string{"move_upwards"})
+	result := p.Run(context.Background(), "go home", rosbridge.EnvironmentParams{
+		Objects:      []string{"red_cube"},
+		Movements:    []string{"move_upwards"},
+		Orientations: []string{"facing_forward"},
+		TableBounds:  rosbridge.TableBounds{Available: true, XMin: -0.6, XMax: 0.6, YMin: -0.4, YMax: 0.4},
+	})
 
 	if result.Error != "" {
 		t.Fatalf("Run() error = %q", result.Error)
@@ -125,7 +162,7 @@ func TestPipeline_Run_InvalidRecipeFailsSchemaValidation(t *testing.T) {
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "go home", nil, nil)
+	result := p.Run(context.Background(), "go home", rosbridge.EnvironmentParams{})
 
 	if result.Error == "" {
 		t.Fatal("expected schema validation error, got none")
@@ -137,7 +174,7 @@ func TestPipeline_Run_StripsMarkdownFences(t *testing.T) {
 	defer llmProxy.Close()
 
 	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
-	result := p.Run(context.Background(), "pick up cube", nil, nil)
+	result := p.Run(context.Background(), "pick up cube", rosbridge.EnvironmentParams{})
 
 	if result.Error != "" {
 		t.Fatalf("Run() error = %q", result.Error)
@@ -175,6 +212,62 @@ func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndExecutesOnBridge(t *test
 	if len(bridge.executed) != 1 {
 		t.Fatalf("bridge executed %d recipes, want 1", len(bridge.executed))
 	}
+}
+
+func TestPipeline_HandlePrompt_RefreshesEnvironmentParamsEachCall(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
+	defer llmProxy.Close()
+
+	hub := websocket.NewHub()
+	bridge := &mockROSBridge{connected: true, objects: []string{"red_cube"}}
+	p := New(hub, bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/client", hub.ServeClient)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	clientWS := dialTestWS(t, server.URL, "/ws/client")
+	time.Sleep(50 * time.Millisecond)
+
+	p.HandlePrompt(context.Background(), "go home")
+	readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
+
+	p.HandlePrompt(context.Background(), "go home again")
+	readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
+
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if bridge.refreshCount != 2 {
+		t.Errorf("refreshCount = %d, want 2 (environment params should be re-fetched on every prompt)", bridge.refreshCount)
+	}
+}
+
+func TestPipeline_HandlePrompt_FallsBackToCachedParamsOnRefreshError(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
+	defer llmProxy.Close()
+
+	hub := websocket.NewHub()
+	bridge := &mockROSBridge{
+		connected:  true,
+		objects:    []string{"red_cube"},
+		refreshErr: errors.New("rosbridge service call timed out"),
+	}
+	p := New(hub, bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/client", hub.ServeClient)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	clientWS := dialTestWS(t, server.URL, "/ws/client")
+	time.Sleep(50 * time.Millisecond)
+
+	p.HandlePrompt(context.Background(), "go home")
+
+	// Despite the refresh failing, the prompt should still complete using
+	// whatever was previously cached, not abort outright.
+	readUntil(t, clientWS, websocket.TypeActionRecipe, 2*time.Second)
 }
 
 func TestPipeline_HandlePrompt_ExecutionFailure_BroadcastsErrorWithoutActionRecipe(t *testing.T) {
@@ -217,9 +310,14 @@ type failingROSBridge struct {
 	connected bool
 }
 
-func (f *failingROSBridge) IsConnected() bool               { return f.connected }
-func (f *failingROSBridge) GetAvailableObjects() []string   { return nil }
-func (f *failingROSBridge) GetAvailableMovements() []string { return nil }
+func (f *failingROSBridge) IsConnected() bool                     { return f.connected }
+func (f *failingROSBridge) GetAvailableObjects() []string         { return nil }
+func (f *failingROSBridge) GetAvailableMovements() []string       { return nil }
+func (f *failingROSBridge) GetAvailableOrientations() []string    { return nil }
+func (f *failingROSBridge) GetTableBounds() rosbridge.TableBounds { return rosbridge.TableBounds{} }
+func (f *failingROSBridge) RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error) {
+	return rosbridge.EnvironmentParams{}, nil
+}
 func (f *failingROSBridge) ExecuteRecipe(ctx context.Context, recipe []byte) error {
 	return errors.New("gripper jammed")
 }

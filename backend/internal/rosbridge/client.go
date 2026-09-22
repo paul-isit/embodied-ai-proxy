@@ -18,7 +18,35 @@ type BridgeObserver interface {
 	OnBridgeConnectionChange(connected bool)
 	OnObjectsUpdated(objects []string)
 	OnMovementsUpdated(movements []string)
+	OnOrientationsUpdated(orientations []string)
+	OnTableBoundsUpdated(bounds TableBounds)
 	OnTelemetry(msg json.RawMessage)
+}
+
+// TableBounds describes the known table footprint in the arm's base frame
+// (Available is false if no table obstacle is configured), used to warn the
+// LLM against pushing/throwing objects off the table edge.
+type TableBounds struct {
+	Available bool    `json:"available"`
+	XMin      float64 `json:"x_min"`
+	XMax      float64 `json:"x_max"`
+	YMin      float64 `json:"y_min"`
+	YMax      float64 `json:"y_max"`
+}
+
+// EnvironmentParams groups the environment state fetched together via
+// /get_robot_parameters. Objects, Movements, and Orientations are all
+// []string - passing them as separate same-typed positional parameters
+// (as FetchEnvironmentParams/RefreshEnvironmentParams/Pipeline.Run all
+// originally did) risks two of them being silently swapped: it still
+// compiles fine, since the types match, but produces wrong data with no
+// error at all. Grouped into a named struct, each field can only be
+// accessed by name.
+type EnvironmentParams struct {
+	Objects      []string
+	Movements    []string
+	Orientations []string
+	TableBounds  TableBounds
 }
 
 type serviceResponse struct {
@@ -46,9 +74,11 @@ type Client struct {
 	connected atomic.Bool
 	reqSeq    atomic.Uint64
 
-	objectsMu     sync.RWMutex
-	availableObjs []string
-	availableMvts []string
+	objectsMu        sync.RWMutex
+	availableObjs    []string
+	availableMvts    []string
+	availableOrients []string
+	tableBounds      TableBounds
 
 	pendingMu sync.Mutex
 	pending   map[string]chan serviceResponse
@@ -71,7 +101,7 @@ func (c *Client) IsConnected() bool {
 	return c.connected.Load()
 }
 
-// GetAvailableObjects returns the cached list of workspace objects.
+// GetAvailableObjects returns the cached list of environment objects.
 func (c *Client) GetAvailableObjects() []string {
 	c.objectsMu.RLock()
 	defer c.objectsMu.RUnlock()
@@ -83,6 +113,20 @@ func (c *Client) GetAvailableMovements() []string {
 	c.objectsMu.RLock()
 	defer c.objectsMu.RUnlock()
 	return c.availableMvts
+}
+
+// GetAvailableOrientations returns the cached list of named orientation presets.
+func (c *Client) GetAvailableOrientations() []string {
+	c.objectsMu.RLock()
+	defer c.objectsMu.RUnlock()
+	return c.availableOrients
+}
+
+// GetTableBounds returns the cached table footprint, if one is configured.
+func (c *Client) GetTableBounds() TableBounds {
+	c.objectsMu.RLock()
+	defer c.objectsMu.RUnlock()
+	return c.tableBounds
 }
 
 func (c *Client) setAvailableObjects(objects []string) {
@@ -102,6 +146,26 @@ func (c *Client) setAvailableMovements(movements []string) {
 
 	if c.observer != nil {
 		c.observer.OnMovementsUpdated(movements)
+	}
+}
+
+func (c *Client) setAvailableOrientations(orientations []string) {
+	c.objectsMu.Lock()
+	c.availableOrients = orientations
+	c.objectsMu.Unlock()
+
+	if c.observer != nil {
+		c.observer.OnOrientationsUpdated(orientations)
+	}
+}
+
+func (c *Client) setTableBounds(bounds TableBounds) {
+	c.objectsMu.Lock()
+	c.tableBounds = bounds
+	c.objectsMu.Unlock()
+
+	if c.observer != nil {
+		c.observer.OnTableBoundsUpdated(bounds)
 	}
 }
 
@@ -151,6 +215,8 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 
 		c.setAvailableObjects(nil)
 		c.setAvailableMovements(nil)
+		c.setAvailableOrientations(nil)
+		c.setTableBounds(TableBounds{})
 		if c.observer != nil {
 			c.observer.OnBridgeConnectionChange(false)
 		}
@@ -170,18 +236,24 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		"type":  "kinova_interfaces/msg/SystemSummary",
 	})
 
-	// Fetch initial workspace objects and movements once on connect
+	// Fetch initial environment objects and movements on connect. This is
+	// only a best-effort warm start for the cache (e.g. for the TUI
+	// sidebar before any prompt has been submitted) - callers handling an
+	// actual prompt should call RefreshEnvironmentParams themselves rather
+	// than rely on this snapshot, since the middleware may not have been
+	// up yet when this ran.
 	go func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if objs, mvts, err := c.FetchWorkspaceParams(fetchCtx); err == nil {
-			log.Printf("[Rosbridge] workspace objects fetched: %v", objs)
-			log.Printf("[Rosbridge] workspace movements fetched: %v", mvts)
-			c.setAvailableObjects(objs)
-			c.setAvailableMovements(mvts)
-		} else {
-			log.Printf("[Rosbridge] initial workspace params fetch warning: %v", err)
+		params, err := c.RefreshEnvironmentParams(fetchCtx)
+		if err != nil {
+			log.Printf("[Rosbridge] initial environment params fetch warning: %v", err)
+			return
 		}
+		log.Printf("[Rosbridge] environment objects fetched: %v", params.Objects)
+		log.Printf("[Rosbridge] environment movements fetched: %v", params.Movements)
+		log.Printf("[Rosbridge] environment orientation presets fetched: %v", params.Orientations)
+		log.Printf("[Rosbridge] table bounds fetched: %+v", params.TableBounds)
 	}()
 
 	// Read and dispatch incoming messages
@@ -268,22 +340,65 @@ func (c *Client) CallService(ctx context.Context, service string, args any) (jso
 	}
 }
 
-// FetchWorkspaceParams queries the /get_robot_parameters ROS service for the
-// known object names and named relative movements.
-func (c *Client) FetchWorkspaceParams(ctx context.Context) (objects, movements []string, err error) {
-	values, err := c.CallService(ctx, "/get_robot_parameters", map[string]any{})
+// RefreshEnvironmentParams queries FetchEnvironmentParams and, on success,
+// updates the cached values returned by GetAvailableObjects/etc (notifying
+// the observer, so e.g. the TUI sidebar also sees the fresh list). Callers
+// that need an up-to-date view right before using it - rather than
+// whatever was cached at connect time - should call this instead of the
+// Get* getters.
+func (c *Client) RefreshEnvironmentParams(ctx context.Context) (EnvironmentParams, error) {
+	params, err := c.FetchEnvironmentParams(ctx)
 	if err != nil {
-		return nil, nil, err
+		return EnvironmentParams{}, err
 	}
 
-	var resp struct {
-		ObjectList    []string `json:"object_list"`
-		MovementNames []string `json:"movement_names"`
+	c.setAvailableObjects(params.Objects)
+	c.setAvailableMovements(params.Movements)
+	c.setAvailableOrientations(params.Orientations)
+	c.setTableBounds(params.TableBounds)
+	return params, nil
+}
+
+// getRobotParametersResponse mirrors the /get_robot_parameters ROS service's
+// response shape - a named type (rather than an inline anonymous struct)
+// so it's clear at a glance what the wire format actually is.
+type getRobotParametersResponse struct {
+	ObjectList       []string `json:"object_list"`
+	MovementNames    []string `json:"movement_names"`
+	OrientationNames []string `json:"orientation_names"`
+	HasTableBounds   bool     `json:"has_table_bounds"`
+	TableXMin        float64  `json:"table_x_min"`
+	TableXMax        float64  `json:"table_x_max"`
+	TableYMin        float64  `json:"table_y_min"`
+	TableYMax        float64  `json:"table_y_max"`
+}
+
+// FetchEnvironmentParams queries the /get_robot_parameters ROS service for the
+// known object names, named relative movements, named orientation presets,
+// and the table's footprint (if configured).
+func (c *Client) FetchEnvironmentParams(ctx context.Context) (EnvironmentParams, error) {
+	values, err := c.CallService(ctx, "/get_robot_parameters", map[string]any{})
+	if err != nil {
+		return EnvironmentParams{}, err
 	}
+
+	var resp getRobotParametersResponse
 	if err := json.Unmarshal(values, &resp); err != nil {
-		return nil, nil, fmt.Errorf("decode /get_robot_parameters response: %w", err)
+		return EnvironmentParams{}, fmt.Errorf("decode /get_robot_parameters response: %w", err)
 	}
-	return resp.ObjectList, resp.MovementNames, nil
+
+	return EnvironmentParams{
+		Objects:      resp.ObjectList,
+		Movements:    resp.MovementNames,
+		Orientations: resp.OrientationNames,
+		TableBounds: TableBounds{
+			Available: resp.HasTableBounds,
+			XMin:      resp.TableXMin,
+			XMax:      resp.TableXMax,
+			YMin:      resp.TableYMin,
+			YMax:      resp.TableYMax,
+		},
+	}, nil
 }
 
 // ExecuteRecipe dispatches a validated action recipe to the /execute_recipe ROS service.

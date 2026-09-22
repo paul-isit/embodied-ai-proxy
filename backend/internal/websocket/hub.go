@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"embodied-ai-proxy/backend/internal/rosbridge"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -90,6 +92,26 @@ func (h *Hub) OnObjectsUpdated(objects []string) {
 func (h *Hub) OnMovementsUpdated(movements []string) {
 	payload, err := json.Marshal(map[string]any{"movement_names": movements})
 	if err != nil {
+		return
+	}
+	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})
+}
+
+// OnOrientationsUpdated implements rosbridge.BridgeObserver
+func (h *Hub) OnOrientationsUpdated(orientations []string) {
+	payload, err := json.Marshal(map[string]any{"orientation_names": orientations})
+	if err != nil {
+		log.Printf("[Hub] failed to marshal orientation_names update: %v", err)
+		return
+	}
+	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})
+}
+
+// OnTableBoundsUpdated implements rosbridge.BridgeObserver
+func (h *Hub) OnTableBoundsUpdated(bounds rosbridge.TableBounds) {
+	payload, err := json.Marshal(map[string]any{"table_bounds": bounds})
+	if err != nil {
+		log.Printf("[Hub] failed to marshal table_bounds update: %v", err)
 		return
 	}
 	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})
