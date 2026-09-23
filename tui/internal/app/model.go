@@ -283,6 +283,7 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.input.SetValue("")
 	m.inFlight = true
 	m.promptSentAt = time.Now()
+	m.hardwareClientLog = nil
 	return m, tea.Batch(m.spin.Tick, elapsedTick())
 }
 
@@ -424,12 +425,11 @@ func (m Model) appendEntry(tag, text string) Model {
 	return m.refreshViewport()
 }
 
-const hardwareClientLogCap = 20 //caps at 20 most recent entries
 const hardwareClientNodeName = "kinova_hardware_client"
 
 // appendHardwareClientLog records a new line in hardwareClientLog whenever
 // kinova_hardware_client's status_message changes, capped to the most
-// recent hardwareClientLogCap entries.
+// recent hardwareClientLogCap entries and prompt.
 func (m Model) appendHardwareClientLog(status *MiddlewareStatus) Model {
 	for _, n := range status.IndividualStates {
 		if n.NodeName != hardwareClientNodeName {
@@ -439,14 +439,11 @@ func (m Model) appendHardwareClientLog(status *MiddlewareStatus) Model {
 		if len(m.hardwareClientLog) > 0 {
 			last = m.hardwareClientLog[len(m.hardwareClientLog)-1]
 		}
-		line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), n.StatusMessage)
 		if last != "" && strings.HasSuffix(last, n.StatusMessage) {
 			break
 		}
+		line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), n.StatusMessage)
 		m.hardwareClientLog = append(m.hardwareClientLog, line)
-		if len(m.hardwareClientLog) > hardwareClientLogCap {
-			m.hardwareClientLog = m.hardwareClientLog[len(m.hardwareClientLog)-hardwareClientLogCap:]
-		}
 		break
 	}
 	return m

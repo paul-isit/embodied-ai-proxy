@@ -230,7 +230,7 @@ func stateStyle(state int) lipgloss.Style {
 // renderSidebar builds the telemetry panel shown alongside the main log.
 // width is the sidebar's total rendered width, height its total rendered
 // height, both already accounting for border/padding via the returned style.
-func renderSidebar(telemetry *MiddlewareStatus, width, height int) string {
+func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height int) string {
     innerWidth := width - 4
     if innerWidth < 1 {
         innerWidth = 1
@@ -262,10 +262,10 @@ func renderSidebar(telemetry *MiddlewareStatus, width, height int) string {
     }
 
 	b.WriteString("\n\n")
-	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- HARDWARE CLIENT LOG ---"))
+	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- CURRENT EXECUTION ---"))
 	if len(hwLog) == 0 {
 		b.WriteByte('\n')
-		b.WriteString(mutedStyle.Width(innerWidth).Render("No activity yet"))
+		b.WriteString(mutedStyle.Width(innerWidth).Render("No prompt running"))
 	} else {
 		for _, entry := range hwLog {
 			b.WriteByte('\n')
@@ -348,7 +348,7 @@ func (m Model) View() string {
 	}
 
 	stackedWidth := contentWidth(m.Width) + 4
-	sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, sidebarWidth, m.Height)
+	sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, stackedWidth, 8)
 	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
 }
 
