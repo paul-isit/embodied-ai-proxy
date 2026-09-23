@@ -152,16 +152,16 @@ func helpText(verbosity int) string {
 		"    PgUp / PgDn    Scroll log",
 		"    Home / End     Jump to top/bottom of log",
 		"",
-		"  Info & Display",
-		"    F1             View this help message",
-		"    F2             Cycle response detail (currently: " + labels[verbosity] + ")",
-		"    F3             Fetch system info",
-		"    F4             Fetch LLM info",
-		"    F5             Toggle telemetry sidebar",
+		"  Info & Display /commands",
+		"    /help             View this help message",
+		"    /verbosity       Cycle response detail (currently: " + labels[verbosity] + ")",
+		"    /system          Fetch system info",
+		"    /llm             Fetch LLM info",
+		"    /sidebar         Toggle telemetry sidebar",
+		"    /save            Save session to a text file",
 		"",
 		"  Session",
 		"    Enter          Submit prompt",
-		"    F6             Save session to a text file",
 		"    Ctrl+C         Quit",
 	}
 	return strings.Join(lines, "\n")
@@ -285,8 +285,8 @@ func (m Model) View() string {
 	main.WriteByte('\n')
 
 	statusLine := fmt.Sprintf(
-		"Backend: %s [%s] | %s",
-		m.AppServerURL, connStatusText(m.connMsg), bridgeStatusText(m.bridgeConnected),
+		"Backend: %s [%s] | %s | LLM: %s",
+		m.AppServerURL, connStatusText(m.connMsg), bridgeStatusText(m.bridgeConnected), llmStatusText(m.llmProvider, m.llmModel),
 	)
 	main.WriteString(statusStyle.Render(statusLine))
 
@@ -318,7 +318,7 @@ func (m Model) View() string {
 	main.WriteString(inputBoxStyle.Width(dividerWidth).Render(m.input.View()))
 	main.WriteByte('\n')
 
-	main.WriteString(mutedStyle.Render("(Enter to submit • F1 to view help • ctrl+c to quit)"))
+	main.WriteString(mutedStyle.Render("(Enter to submit • /help to view help • ctrl+c to quit)"))
 
 	mainCol := lipgloss.NewStyle().
 		Padding(1, 2).
@@ -338,4 +338,11 @@ func (m Model) View() string {
 	stackedWidth := contentWidth(m.Width) + 4
 	sidebar := renderSidebar(m.telemetry, stackedWidth, 8)
 	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
+}
+
+func llmStatusText(provider, model string) string {
+	if provider == "" || model == "" {
+		return mutedStyle.Render("unknown")
+	}
+	return provider + "/" + model
 }

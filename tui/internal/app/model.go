@@ -51,6 +51,11 @@ type Model struct {
 	verbosity      int
 	promptSentAt   time.Time
 
+	llmProvider string
+	llmModel    string
+
+
+
 }
 
 // NewModel creates a new initial Model instance
@@ -113,7 +118,7 @@ func fetchSystemInfo(api *client.APIClient, use string) tea.Cmd {
 // Init initialises the event loop and runs the startup commands
 func (m Model) Init() tea.Cmd {
 	m.ws.Start()
-	return tea.Batch(textinput.Blink, waitForWSMsg(m.ws.MsgChan()))
+	return tea.Batch(textinput.Blink, waitForWSMsg(m.ws.MsgChan()), fetchSystemInfo(m.api, "llm_header"),)
 }
 
 // Update handles incoming messages
@@ -153,6 +158,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForWSMsg(m.ws.MsgChan())
 
 	case SystemInfoMsg:
+		if msg.Use == "llm_header" {
+			if msg.Err == nil && msg.Info != nil {
+				m.llmProvider = msg.Info.LLM.Provider
+				m.llmModel = msg.Info.LLM.Model
+			}
+			return m, nil
+		}	
 		m = m.appendEntry("", formatSystemInfo(msg))
 		return m, nil
 
@@ -193,32 +205,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
-	case tea.KeyF1:
-		m = m.appendEntry(sysTag, helpText(m.verbosity))
-		return m, nil
-	case tea.KeyF2:
-		return m.cycleVerbosity()
-	case tea.KeyF3:
-		return m, fetchSystemInfo(m.api, "system")
-	case tea.KeyF4:
-		return m, fetchSystemInfo(m.api, "llm")
-	case tea.KeyF5:
-		m.showSidebar = !m.showSidebar
-		if m.showSidebar && m.Width >= minWidthForSidebar {
-			m.viewport.Width = contentWidth(m.Width) - sidebarWidth
-		} else {
-			m.viewport.Width = contentWidth(m.Width)
-		}
-		m = m.refreshViewport()
-		return m, tea.ClearScreen
-	case tea.KeyF6:
-		path, err := m.saveSession()
-		if err != nil {
-			m = m.appendEntry(errTag, "failed to save session: "+err.Error())
-		} else {
-			m = m.appendEntry(sysTag, "Session saved to "+path)
-		}
-		return m, nil
 	}
 
 	// Not a recognized shortcut — let the text input handle it (typing, backspace, etc.)
@@ -274,6 +260,15 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if strings.HasPrefix(text, "/") {
+		m.input.SetValue("")
+		return m.handleSlashCommand(text)
+	}
+
+	if m.inFlight {
+		return m, nil
+	}
+
 	m.history = append([]string{text}, m.history...)
 	m.historyIndex = -1
 	m.historyDraft = ""
@@ -288,6 +283,44 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.inFlight = true
 	m.promptSentAt = time.Now()
 	return m, tea.Batch(m.spin.Tick, elapsedTick())
+}
+
+// handleSlashCommand parses and dispatches a "/command" line. 
+func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
+	name := strings.ToLower(strings.TrimPrefix(text, "/"))
+	name = strings.Fields(name)[0] 
+
+	switch name {
+	case "help", "h":
+		m = m.appendEntry(sysTag, helpText(m.verbosity))
+		return m, nil
+	case "verbosity", "v":
+		return m.cycleVerbosity()
+	case "system", "sys":
+		return m, fetchSystemInfo(m.api, "system")
+	case "llm":
+		return m, fetchSystemInfo(m.api, "llm")
+	case "sidebar":
+		m.showSidebar = !m.showSidebar
+		if m.showSidebar && m.Width >= minWidthForSidebar {
+			m.viewport.Width = contentWidth(m.Width) - sidebarWidth
+		} else {
+			m.viewport.Width = contentWidth(m.Width)
+		}
+		m = m.refreshViewport()
+		return m, tea.ClearScreen
+	case "save":
+		path, err := m.saveSession()
+		if err != nil {
+			m = m.appendEntry(errTag, "failed to save session: "+err.Error())
+		} else {
+			m = m.appendEntry(sysTag, "Session saved to "+path)
+		}
+		return m, nil
+	default:
+		m = m.appendEntry(errTag, "unknown command: /"+name+" (try /help)")
+		return m, nil
+	}
 }
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
