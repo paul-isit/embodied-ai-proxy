@@ -261,6 +261,18 @@ func renderSidebar(telemetry *MiddlewareStatus, width, height int) string {
         }
     }
 
+	b.WriteString("\n\n")
+	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- HARDWARE CLIENT LOG ---"))
+	if len(hwLog) == 0 {
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Width(innerWidth).Render("No activity yet"))
+	} else {
+		for _, entry := range hwLog {
+			b.WriteByte('\n')
+			b.WriteString(mutedStyle.Width(innerWidth).Render(entry))
+		}
+	}
+
     return lipgloss.NewStyle().
         Width(width).
         Height(height).
@@ -331,12 +343,12 @@ func (m Model) View() string {
 	}
 
 	if m.Width >= minWidthForSidebar {
-		sidebar := renderSidebar(m.telemetry, sidebarWidth, m.Height)
+		sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, sidebarWidth, m.Height)
 		return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
 	}
 
 	stackedWidth := contentWidth(m.Width) + 4
-	sidebar := renderSidebar(m.telemetry, stackedWidth, 8)
+	sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, sidebarWidth, m.Height)
 	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
 }
 
