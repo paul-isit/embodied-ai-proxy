@@ -37,7 +37,7 @@ var (
 // scrollable viewport: top+bottom padding, the header, the status/in-flight
 // line, the input line, and the footer hint - used to size the viewport
 // against the real terminal height.
-const fixedLines = 11
+const fixedLines = 12
 
 
 // formatEnvelope renders a raw backend envelope as plain text
@@ -302,9 +302,11 @@ func (m Model) View() string {
 	)
 	main.WriteString(statusStyle.Render(statusLine))
 
+	main.WriteByte('\n')
 	if len(m.availableObjects) > 0 {
-		main.WriteByte('\n')
 		main.WriteString(mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
+	} else {
+		main.WriteString(mutedStyle.Render("Objects: (none discovered yet)"))
 	}
 
 	main.WriteByte('\n')
