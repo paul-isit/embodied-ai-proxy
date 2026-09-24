@@ -37,7 +37,7 @@ var (
 // scrollable viewport: top+bottom padding, the header, the status/in-flight
 // line, the input line, and the footer hint - used to size the viewport
 // against the real terminal height.
-const fixedLines = 12
+const fixedLines = 13
 
 
 // formatEnvelope renders a raw backend envelope as plain text
@@ -283,7 +283,7 @@ func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height in
 }
 
 const sidebarWidth = 34
-const minWidthForSidebar = 140 //sidebar will not render if terminal width is less than this
+
 
 // View renders the TUI
 func (m Model) View() string {
@@ -297,10 +297,20 @@ func (m Model) View() string {
 	main.WriteByte('\n')
 
 	statusLine := fmt.Sprintf(
-		"Backend: %s [%s] | %s | LLM: %s",
-		m.AppServerURL, connStatusText(m.connMsg), bridgeStatusText(m.bridgeConnected), llmStatusText(m.llmProvider, m.llmModel),
+		"Backend: %s [%s] | %s",
+		m.AppServerURL,
+		connStatusText(m.connMsg),
+		bridgeStatusText(m.bridgeConnected),
 	)
+
 	main.WriteString(statusStyle.Render(statusLine))
+	main.WriteByte('\n')
+
+	main.WriteString(
+		statusStyle.Render(
+			"LLM: " + llmStatusText(m.llmProvider, m.llmModel),
+		),
+	)
 
 	main.WriteByte('\n')
 	if len(m.availableObjects) > 0 {
@@ -334,7 +344,18 @@ func (m Model) View() string {
 
 	main.WriteString(mutedStyle.Render("(Enter to submit • /help to view help • ctrl+c to quit)"))
 
+	mainWidth := contentWidth(m.Width)
+
+	if m.showSidebar {
+		mainWidth -= sidebarWidth
+	}
+
+	if mainWidth < 10 {
+		mainWidth = 10
+	}
+
 	mainCol := lipgloss.NewStyle().
+		Width(mainWidth).
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3B4261")).
@@ -344,14 +365,14 @@ func (m Model) View() string {
 		return mainCol
 	}
 
-	if m.Width >= minWidthForSidebar {
-		sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, sidebarWidth, m.Height)
-		return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
-	}
+	sidebar := renderSidebar(
+		m.telemetry,
+		m.hardwareClientLog,
+		sidebarWidth,
+		max(1, m.Height-2),
+	)
 
-	stackedWidth := contentWidth(m.Width) + 4
-	sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, stackedWidth, 8)
-	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
+	return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
 }
 
 func llmStatusText(provider, model string) string {

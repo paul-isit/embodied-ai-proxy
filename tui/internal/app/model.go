@@ -128,10 +128,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.Ready = true
-		if m.showSidebar && m.Width >= minWidthForSidebar {
-			m.viewport.Width = contentWidth(m.Width) - sidebarWidth
+		if m.showSidebar {
+			m.viewport.Width = contentWidth(m.Width) - sidebarWidth - 6
 		} else {
-			m.viewport.Width = contentWidth(m.Width)
+			m.viewport.Width = contentWidth(m.Width) - 6
+		}
+
+		if m.viewport.Width < 1 {
+			m.viewport.Width = 1
 		}
 		m.viewport.Height = max(3, m.Height-fixedLines)
 		m = m.refreshViewport()
@@ -304,11 +308,17 @@ func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
 		return m, fetchSystemInfo(m.api, "llm")
 	case "sidebar":
 		m.showSidebar = !m.showSidebar
-		if m.showSidebar && m.Width >= minWidthForSidebar {
-			m.viewport.Width = contentWidth(m.Width) - sidebarWidth
+
+		if m.showSidebar {
+			m.viewport.Width = contentWidth(m.Width) - sidebarWidth - 6
 		} else {
-			m.viewport.Width = contentWidth(m.Width)
+			m.viewport.Width = contentWidth(m.Width) - 6
 		}
+
+		if m.viewport.Width < 1 {
+			m.viewport.Width = 1
+		}
+
 		m = m.refreshViewport()
 		return m, tea.ClearScreen
 	case "save":
