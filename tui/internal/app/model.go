@@ -296,8 +296,12 @@ func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
 	case "help", "h":
 		m = m.appendEntry(sysTag, helpText(m.verbosity))
 		return m, nil
-	case "verbosity", "v":
-		return m.cycleVerbosity()
+	case "filtered":
+		return m.setVerbosity(1, "L1 - Filtered")
+	case "context":
+		return m.setVerbosity(2, "L2 - Full Context")
+	case "debug":
+		return m.setVerbosity(3, "L3 - Debug")
 	case "system", "sys":
 		return m, fetchSystemInfo(m.api, "system")
 	case "llm":
@@ -357,12 +361,15 @@ func (m Model) saveSession() (string, error) {
 	return path, nil
 }
 
-// cycleVerbosity advances response detail level 1 (Filtered) -> 2 (Full
-// Context) -> 3 (Debug) -> back to 1, logging the change as a SYS line.
-func (m Model) cycleVerbosity() (tea.Model, tea.Cmd) {
-	m.verbosity = (m.verbosity % 3) + 1
-	labels := map[int]string{1: "L1 - Filtered", 2: "L2 - Full Context", 3: "L3 - Debug"}
-	m = m.appendEntry(sysTag, "Verbosity set to "+labels[m.verbosity])
+// setVerbosity sets the response detail level directly and logs the change
+// as a SYS line, unless it's already at that level.
+func (m Model) setVerbosity(level int, label string) (tea.Model, tea.Cmd) {
+	if m.verbosity == level {
+		m = m.appendEntry(sysTag, "Already at "+label)
+		return m, nil
+	}
+	m.verbosity = level
+	m = m.appendEntry(sysTag, "Verbosity set to "+label)
 	return m, nil
 }
 
