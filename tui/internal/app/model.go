@@ -169,13 +169,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}	
-		if msg.Use == "llm_header" {
-			if msg.Err == nil && msg.Info != nil {
-				m.llmProvider = msg.Info.LLM.Provider
-				m.llmModel = msg.Info.LLM.Model
-			}
-			return m, nil
-		}	
+
 		m = m.appendEntry("", formatSystemInfo(msg))
 		return m, nil
 
@@ -296,6 +290,53 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.promptSentAt = time.Now()
 	m.hardwareClientLog = nil
 	return m, tea.Batch(m.spin.Tick, elapsedTick())
+}
+
+func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
+	name := strings.ToLower(strings.TrimPrefix(text, "/"))
+	name = strings.Fields(name)[0]
+
+	switch name {
+	case "help", "h":
+		m = m.appendEntry(sysTag, helpText(m.verbosity))
+		return m, nil
+	case "filtered":
+		return m.setVerbosity(1, "L1 - Filtered")
+	case "context":
+		return m.setVerbosity(2, "L2 - Full Context")
+	case "debug":
+		return m.setVerbosity(3, "L3 - Debug")
+	case "system", "sys":
+		return m, fetchSystemInfo(m.api, "system")
+	case "llm":
+		return m, fetchSystemInfo(m.api, "llm")
+	case "sidebar":
+		m.showSidebar = !m.showSidebar
+
+		if m.showSidebar {
+			m.viewport.Width = contentWidth(m.Width) - sidebarWidth - 6
+		} else {
+			m.viewport.Width = contentWidth(m.Width) - 6
+		}
+
+		if m.viewport.Width < 1 {
+			m.viewport.Width = 1
+		}
+
+		m = m.refreshViewport()
+		return m, tea.ClearScreen
+	case "save":
+		path, err := m.saveSession()
+		if err != nil {
+			m = m.appendEntry(errTag, "failed to save session: "+err.Error())
+		} else {
+			m = m.appendEntry(sysTag, "Session saved to "+path)
+		}
+		return m, nil
+	default:
+		m = m.appendEntry(errTag, "unknown command: /"+name+" (try /help)")
+		return m, nil
+	}
 }
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)

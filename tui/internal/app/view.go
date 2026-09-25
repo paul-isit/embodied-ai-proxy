@@ -234,7 +234,6 @@ func stateStyle(state int) lipgloss.Style {
 // width is the sidebar's total rendered width, height its total rendered
 // height, both already accounting for border/padding via the returned style.
 func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height int) string {
-func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height int) string {
     innerWidth := width - 4
     if innerWidth < 1 {
         innerWidth = 1
@@ -262,20 +261,6 @@ func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height in
                 b.WriteByte('\n')
                 b.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
             }
-        }
-    }
-
-	b.WriteString("\n\n")
-	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- CURRENT EXECUTION ---"))
-	if len(hwLog) == 0 {
-		b.WriteByte('\n')
-		b.WriteString(mutedStyle.Width(innerWidth).Render("No prompt running"))
-	} else {
-		for _, entry := range hwLog {
-			b.WriteByte('\n')
-			b.WriteString(mutedStyle.Width(innerWidth).Render(entry))
-		}
-	}
         }
     }
 
@@ -335,8 +320,6 @@ func (m Model) View() string {
 		main.WriteString(mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
 	} else {
 		main.WriteString(mutedStyle.Render("Objects: (none discovered yet)"))
-	} else {
-		main.WriteString(mutedStyle.Render("Objects: (none discovered yet)"))
 	}
 
 	main.WriteByte('\n')
@@ -393,13 +376,6 @@ func (m Model) View() string {
 	)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
-}
-
-func llmStatusText(provider, model string) string {
-	if provider == "" || model == "" {
-		return mutedStyle.Render("unknown")
-	}
-	return provider + "/" + model
 }
 
 func llmStatusText(provider, model string) string {
