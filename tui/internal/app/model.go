@@ -128,6 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.Ready = true
+
 		if m.showSidebar {
 			m.viewport.Width = contentWidth(m.Width) - sidebarWidth - 6
 		} else {
@@ -137,7 +138,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewport.Width < 1 {
 			m.viewport.Width = 1
 		}
-		m.viewport.Height = max(3, m.Height-fixedLines)
+
+		m.viewport.Height = calculateViewportHeight(m)
+
 		m = m.refreshViewport()
 		return m, tea.ClearScreen
 

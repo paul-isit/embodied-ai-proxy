@@ -33,13 +33,6 @@ var (
 	inputBoxStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#565F89")).Padding(0, 1)
 )
 
-// fixedLines is the number of rows the layout always reserves outside the
-// scrollable viewport: top+bottom padding, the header, the status/in-flight
-// line, the input line, and the footer hint - used to size the viewport
-// against the real terminal height.
-const fixedLines = 13
-
-
 // formatEnvelope renders a raw backend envelope as plain text
 func formatEnvelope(env client.Envelope) string {
 	var pretty bytes.Buffer
@@ -189,6 +182,20 @@ func contentWidth(termWidth int) int {
 	return max(1, termWidth-6)
 }
 
+func mainWidth(m Model) int {
+	width := contentWidth(m.Width)
+
+	if m.showSidebar {
+		width -= sidebarWidth
+	}
+
+	if width < 10 {
+		width = 10
+	}
+
+	return width
+}
+
 func bridgeStatusText(connected *bool) string {
 	switch {
 	case connected == nil:
@@ -287,13 +294,7 @@ func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height in
 
 const sidebarWidth = 34
 
-
-// View renders the TUI
-func (m Model) View() string {
-	if !m.Ready {
-		return "Initializing TUI..."
-	}
-
+func renderMainColumn(m Model, viewportContent string) string {
 	var main strings.Builder
 
 	main.WriteString(titleStyle.Render("Embodied AI Proxy — TUI"))
@@ -316,53 +317,103 @@ func (m Model) View() string {
 	)
 
 	main.WriteByte('\n')
+
 	if len(m.availableObjects) > 0 {
-		main.WriteString(mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
+		main.WriteString(
+			mutedStyle.Render("Objects: ") +
+				lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#E0AF68")).
+					Render(strings.Join(m.availableObjects, ", ")),
+		)
 	} else {
-		main.WriteString(mutedStyle.Render("Objects: (none discovered yet)"))
+		main.WriteString(
+			mutedStyle.Render("Objects: (none discovered yet)"),
+		)
 	}
 
 	main.WriteByte('\n')
+
 	dividerWidth := m.viewport.Width
 	if dividerWidth < 1 {
 		dividerWidth = 1
 	}
-	main.WriteString(dividerStyle.Render(strings.Repeat("─", dividerWidth)))
+
+	main.WriteString(
+		dividerStyle.Render(strings.Repeat("─", dividerWidth)),
+	)
 	main.WriteByte('\n')
 
-	main.WriteString(m.viewport.View())
+	// Viewport content is supplied by the caller.
+	main.WriteString(viewportContent)
 	main.WriteByte('\n')
 
 	if m.inFlight {
 		main.WriteByte('\n')
 		elapsed := time.Since(m.promptSentAt).Round(time.Second)
-		main.WriteString(statusStyle.Render(m.spin.View() + " waiting for response... (" + elapsed.String() + ")"))
+		main.WriteString(
+			statusStyle.Render(
+				m.spin.View() +
+					" waiting for response... (" +
+					elapsed.String() +
+					")",
+			),
+		)
 	} else {
 		main.WriteByte('\n')
 	}
+
 	main.WriteByte('\n')
 
-	main.WriteString(inputBoxStyle.Width(dividerWidth).Render(m.input.View()))
+	main.WriteString(
+		inputBoxStyle.Width(dividerWidth).Render(m.input.View()),
+	)
 	main.WriteByte('\n')
 
-	main.WriteString(mutedStyle.Render("(Enter to submit • /help to view help • ctrl+c to quit)"))
+	main.WriteString(
+		mutedStyle.Render(
+			"(Enter to submit • /help to view help • ctrl+c to quit)",
+		),
+	)
 
-	mainWidth := contentWidth(m.Width)
-
-	if m.showSidebar {
-		mainWidth -= sidebarWidth
-	}
-
-	if mainWidth < 10 {
-		mainWidth = 10
-	}
-
-	mainCol := lipgloss.NewStyle().
-		Width(mainWidth).
+	return lipgloss.NewStyle().
+		Width(mainWidth(m)).
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3B4261")).
 		Render(main.String())
+}
+
+func calculateViewportHeight(m Model) int {
+	// Use a single line as a placeholder for the viewport.
+	placeholder := " "
+
+	// Render the complete main column with that one-line placeholder.
+	//
+	// This tells us how tall everything outside the real viewport is.
+	withPlaceholder := renderMainColumn(m, placeholder)
+
+	staticHeight := lipgloss.Height(withPlaceholder)
+
+	// The placeholder accounts for one viewport row, so remove it
+	// before calculating how much room is actually available.
+	nonViewportHeight := staticHeight - 1
+
+	height := m.Height - nonViewportHeight
+
+	if height < 3 {
+		height = 3
+	}
+
+	return height
+}
+
+// View renders the TUI
+func (m Model) View() string {
+	if !m.Ready {
+		return "Initializing TUI..."
+	}
+
+	mainCol := renderMainColumn(m, m.viewport.View())
 
 	if !m.showSidebar {
 		return mainCol
@@ -375,7 +426,11 @@ func (m Model) View() string {
 		max(1, m.Height-2),
 	)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
+	return lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		mainCol,
+		sidebar,
+	)
 }
 
 func llmStatusText(provider, model string) string {
