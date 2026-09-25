@@ -169,6 +169,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}	
+		if msg.Use == "llm_header" {
+			if msg.Err == nil && msg.Info != nil {
+				m.llmProvider = msg.Info.LLM.Provider
+				m.llmModel = msg.Info.LLM.Model
+			}
+			return m, nil
+		}	
 		m = m.appendEntry("", formatSystemInfo(msg))
 		return m, nil
 
@@ -291,50 +298,6 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.spin.Tick, elapsedTick())
 }
 
-// handleSlashCommand parses and dispatches a "/command" line. 
-func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
-	name := strings.ToLower(strings.TrimPrefix(text, "/"))
-	name = strings.Fields(name)[0] 
-
-	switch name {
-	case "help", "h":
-		m = m.appendEntry(sysTag, helpText(m.verbosity))
-		return m, nil
-	case "verbosity", "v":
-		return m.cycleVerbosity()
-	case "system", "sys":
-		return m, fetchSystemInfo(m.api, "system")
-	case "llm":
-		return m, fetchSystemInfo(m.api, "llm")
-	case "sidebar":
-		m.showSidebar = !m.showSidebar
-
-		if m.showSidebar {
-			m.viewport.Width = contentWidth(m.Width) - sidebarWidth - 6
-		} else {
-			m.viewport.Width = contentWidth(m.Width) - 6
-		}
-
-		if m.viewport.Width < 1 {
-			m.viewport.Width = 1
-		}
-
-		m = m.refreshViewport()
-		return m, tea.ClearScreen
-	case "save":
-		path, err := m.saveSession()
-		if err != nil {
-			m = m.appendEntry(errTag, "failed to save session: "+err.Error())
-		} else {
-			m = m.appendEntry(sysTag, "Session saved to "+path)
-		}
-		return m, nil
-	default:
-		m = m.appendEntry(errTag, "unknown command: /"+name+" (try /help)")
-		return m, nil
-	}
-}
-
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func stripANSI(s string) string {
@@ -367,12 +330,15 @@ func (m Model) saveSession() (string, error) {
 	return path, nil
 }
 
-// cycleVerbosity advances response detail level 1 (Filtered) -> 2 (Full
-// Context) -> 3 (Debug) -> back to 1, logging the change as a SYS line.
-func (m Model) cycleVerbosity() (tea.Model, tea.Cmd) {
-	m.verbosity = (m.verbosity % 3) + 1
-	labels := map[int]string{1: "L1 - Filtered", 2: "L2 - Full Context", 3: "L3 - Debug"}
-	m = m.appendEntry(sysTag, "Verbosity set to "+labels[m.verbosity])
+// setVerbosity sets the response detail level directly and logs the change
+// as a SYS line, unless it's already at that level.
+func (m Model) setVerbosity(level int, label string) (tea.Model, tea.Cmd) {
+	if m.verbosity == level {
+		m = m.appendEntry(sysTag, "Already at "+label)
+		return m, nil
+	}
+	m.verbosity = level
+	m = m.appendEntry(sysTag, "Verbosity set to "+label)
 	return m, nil
 }
 
