@@ -37,7 +37,7 @@ var (
 // scrollable viewport: top+bottom padding, the header, the status/in-flight
 // line, the input line, and the footer hint - used to size the viewport
 // against the real terminal height.
-const fixedLines = 11
+const fixedLines = 12
 
 
 // formatEnvelope renders a raw backend envelope as plain text
@@ -152,16 +152,19 @@ func helpText(verbosity int) string {
 		"    PgUp / PgDn    Scroll log",
 		"    Home / End     Jump to top/bottom of log",
 		"",
-		"  Info & Display",
-		"    F1             View this help message",
-		"    F2             Cycle response detail (currently: " + labels[verbosity] + ")",
-		"    F3             Fetch system info",
-		"    F4             Fetch LLM info",
-		"    F5             Toggle telemetry sidebar",
+		"  Info & Display /commands",
+		"    /help             View this help message",
+		"    /filtered        Set response detail to L1 - Filtered",
+		"    /context         Set response detail to L2 - Full Context",
+		"    /debug           Set response detail to L3 - Debug",
+		"    (currently: " + labels[verbosity] + ")",
+		"    /system          Fetch system info",
+		"    /llm             Fetch LLM info",
+		"    /sidebar         Toggle telemetry sidebar",
+		"    /save            Save session to a text file",
 		"",
 		"  Session",
 		"    Enter          Submit prompt",
-		"    F6             Save session to a text file",
 		"    Ctrl+C         Quit",
 	}
 	return strings.Join(lines, "\n")
@@ -230,7 +233,7 @@ func stateStyle(state int) lipgloss.Style {
 // renderSidebar builds the telemetry panel shown alongside the main log.
 // width is the sidebar's total rendered width, height its total rendered
 // height, both already accounting for border/padding via the returned style.
-func renderSidebar(telemetry *MiddlewareStatus, width, height int) string {
+func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height int) string {
     innerWidth := width - 4
     if innerWidth < 1 {
         innerWidth = 1
@@ -261,6 +264,18 @@ func renderSidebar(telemetry *MiddlewareStatus, width, height int) string {
         }
     }
 
+	b.WriteString("\n\n")
+	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- CURRENT EXECUTION ---"))
+	if len(hwLog) == 0 {
+		b.WriteByte('\n')
+		b.WriteString(mutedStyle.Width(innerWidth).Render("No prompt running"))
+	} else {
+		for _, entry := range hwLog {
+			b.WriteByte('\n')
+			b.WriteString(mutedStyle.Width(innerWidth).Render(entry))
+		}
+	}
+
     return lipgloss.NewStyle().
         Width(width).
         Height(height).
@@ -285,14 +300,16 @@ func (m Model) View() string {
 	main.WriteByte('\n')
 
 	statusLine := fmt.Sprintf(
-		"Backend: %s [%s] | %s",
-		m.AppServerURL, connStatusText(m.connMsg), bridgeStatusText(m.bridgeConnected),
+		"Backend: %s [%s] | %s | LLM: %s",
+		m.AppServerURL, connStatusText(m.connMsg), bridgeStatusText(m.bridgeConnected), llmStatusText(m.llmProvider, m.llmModel),
 	)
 	main.WriteString(statusStyle.Render(statusLine))
 
+	main.WriteByte('\n')
 	if len(m.availableObjects) > 0 {
-		main.WriteByte('\n')
 		main.WriteString(mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
+	} else {
+		main.WriteString(mutedStyle.Render("Objects: (none discovered yet)"))
 	}
 
 	main.WriteByte('\n')
@@ -318,7 +335,7 @@ func (m Model) View() string {
 	main.WriteString(inputBoxStyle.Width(dividerWidth).Render(m.input.View()))
 	main.WriteByte('\n')
 
-	main.WriteString(mutedStyle.Render("(Enter to submit • F1 to view help • ctrl+c to quit)"))
+	main.WriteString(mutedStyle.Render("(Enter to submit • /help to view help • ctrl+c to quit)"))
 
 	mainCol := lipgloss.NewStyle().
 		Padding(1, 2).
@@ -331,11 +348,18 @@ func (m Model) View() string {
 	}
 
 	if m.Width >= minWidthForSidebar {
-		sidebar := renderSidebar(m.telemetry, sidebarWidth, m.Height)
+		sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, sidebarWidth, m.Height)
 		return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
 	}
 
 	stackedWidth := contentWidth(m.Width) + 4
-	sidebar := renderSidebar(m.telemetry, stackedWidth, 8)
+	sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, stackedWidth, 8)
 	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
+}
+
+func llmStatusText(provider, model string) string {
+	if provider == "" || model == "" {
+		return mutedStyle.Render("unknown")
+	}
+	return provider + "/" + model
 }
