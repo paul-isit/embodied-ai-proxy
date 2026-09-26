@@ -103,6 +103,20 @@ func elapsedTick() tea.Cmd {
 	})
 }
 
+// promptTimeoutMsg fires once, some time after a prompt was sent, to force
+// inFlight to clear if no action_recipe/error-level log_event ever arrived
+type promptTimeoutMsg struct {
+	sentAt time.Time
+}
+
+const promptTimeout = 30 * time.Second //timeout after 30 seconds
+
+func promptTimeoutCmd(sentAt time.Time) tea.Cmd {
+	return tea.Tick(promptTimeout, func(time.Time) tea.Msg {
+		return promptTimeoutMsg{sentAt: sentAt}
+	})
+}
+
 // fetchSystemInfo returns a tea.Cmd that calls GET /api/info in the
 // background, since APIClient.FetchInfo blocks on HTTP and must not run
 // directly inside Update.
@@ -193,6 +207,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case client.Envelope:
 		return m.handleEnvelope(msg)
 	}
+	case promptTimeoutMsg:
+	if m.inFlight && m.promptSentAt.Equal(msg.sentAt) {
+		m.inFlight = false
+		m = m.appendEntry(errTag, "No response received within 30s - you can try again.")
+	}
+	return m, nil
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -292,7 +312,7 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.inFlight = true
 	m.promptSentAt = time.Now()
 	m.hardwareClientLog = nil
-	return m, tea.Batch(m.spin.Tick, elapsedTick())
+	return m, tea.Batch(m.spin.Tick, elapsedTick(), promptTimeoutCmd(m.promptSentAt))
 }
 
 func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
