@@ -206,13 +206,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.Envelope:
 		return m.handleEnvelope(msg)
-	}
+	
 	case promptTimeoutMsg:
-	if m.inFlight && m.promptSentAt.Equal(msg.sentAt) {
-		m.inFlight = false
-		m = m.appendEntry(errTag, "No response received within 30s - you can try again.")
-	}
+		if m.inFlight && m.promptSentAt.Equal(msg.sentAt) {
+			m.inFlight = false
+			m = m.appendEntry(errTag, "No response received within 30s - you can try again.")
+		}
 	return m, nil
+	}
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -269,9 +270,7 @@ func (m Model) handleEnvelope(msg client.Envelope) (tea.Model, tea.Cmd) {
 
 	case client.TypeLogEvent:
 		m = m.appendEntry("", formatLogEvent(msg.Payload))
-		if isErrorLevel(msg.Payload) {
-			m.inFlight = false
-		}
+		m.inFlight = false
 		return m, waitForWSMsg(m.ws.MsgChan())
 
 	default:
@@ -514,10 +513,4 @@ func decodeMiddlewareStatus(payload json.RawMessage) *MiddlewareStatus {
 	return v.MiddlewareStatus
 }
 
-func isErrorLevel(payload json.RawMessage) bool {
-	var evt LogEventMsg
-	if err := json.Unmarshal(payload, &evt); err != nil {
-		return false
-	}
-	return strings.EqualFold(evt.Level, "error")
-}
+
