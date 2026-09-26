@@ -33,13 +33,6 @@ var (
 	inputBoxStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#565F89")).Padding(0, 1)
 )
 
-// fixedLines is the number of rows the layout always reserves outside the
-// scrollable viewport: top+bottom padding, the header, the status/in-flight
-// line, the input line, and the footer hint - used to size the viewport
-// against the real terminal height.
-const fixedLines = 12
-
-
 // formatEnvelope renders a raw backend envelope as plain text
 func formatEnvelope(env client.Envelope) string {
 	var pretty bytes.Buffer
@@ -189,6 +182,20 @@ func contentWidth(termWidth int) int {
 	return max(1, termWidth-6)
 }
 
+func mainWidth(m Model) int {
+	width := contentWidth(m.Width)
+
+	if m.showSidebar {
+		width -= sidebarWidth
+	}
+
+	if width < 10 {
+		width = 10
+	}
+
+	return width
+}
+
 func bridgeStatusText(connected *bool) string {
 	switch {
 	case connected == nil:
@@ -286,7 +293,115 @@ func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height in
 }
 
 const sidebarWidth = 34
-const minWidthForSidebar = 140 //sidebar will not render if terminal width is less than this
+
+func renderMainColumn(m Model, viewportContent string) string {
+	var main strings.Builder
+
+	main.WriteString(titleStyle.Render("Embodied AI Proxy — TUI"))
+	main.WriteByte('\n')
+
+	statusLine := fmt.Sprintf(
+		"Backend: %s [%s] | %s",
+		m.AppServerURL,
+		connStatusText(m.connMsg),
+		bridgeStatusText(m.bridgeConnected),
+	)
+
+	main.WriteString(statusStyle.Render(statusLine))
+	main.WriteByte('\n')
+
+	main.WriteString(
+		statusStyle.Render(
+			"LLM: " + llmStatusText(m.llmProvider, m.llmModel),
+		),
+	)
+
+	main.WriteByte('\n')
+
+	if len(m.availableObjects) > 0 {
+		main.WriteString(
+			mutedStyle.Render("Objects: ") +
+				lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#E0AF68")).
+					Render(strings.Join(m.availableObjects, ", ")),
+		)
+	} else {
+		main.WriteString(
+			mutedStyle.Render("Objects: (none discovered yet)"),
+		)
+	}
+
+	main.WriteByte('\n')
+
+	dividerWidth := m.viewport.Width
+	if dividerWidth < 1 {
+		dividerWidth = 1
+	}
+
+	main.WriteString(
+		dividerStyle.Render(strings.Repeat("─", dividerWidth)),
+	)
+	main.WriteByte('\n')
+
+	// Viewport content is supplied by the caller.
+	main.WriteString(viewportContent)
+	main.WriteByte('\n')
+
+	if m.inFlight {
+		main.WriteByte('\n')
+		elapsed := time.Since(m.promptSentAt).Round(time.Second)
+		main.WriteString(
+			statusStyle.Render(
+				m.spin.View() +
+					" waiting for response... (" +
+					elapsed.String() +
+					")",
+			),
+		)
+	} else {
+		main.WriteByte('\n')
+	}
+
+	main.WriteByte('\n')
+
+	main.WriteString(
+		inputBoxStyle.Width(dividerWidth).Render(m.input.View()),
+	)
+	main.WriteByte('\n')
+
+	main.WriteString(
+		mutedStyle.Render(
+			"(Enter to submit • /help to view help • ctrl+c to quit)",
+		),
+	)
+
+	return lipgloss.NewStyle().
+		Width(mainWidth(m)).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3B4261")).
+		Render(main.String())
+}
+
+func calculateViewportHeight(m Model) int {
+	
+	placeholder := " "
+
+	withPlaceholder := renderMainColumn(m, placeholder)
+
+	staticHeight := lipgloss.Height(withPlaceholder)
+
+
+	nonViewportHeight := staticHeight - 1
+
+	height := m.Height - nonViewportHeight
+
+	if height < 3 {
+		height = 3
+	}
+
+	return height
+}
 
 // View renders the TUI
 func (m Model) View() string {
@@ -294,67 +409,24 @@ func (m Model) View() string {
 		return "Initializing TUI..."
 	}
 
-	var main strings.Builder
-
-	main.WriteString(titleStyle.Render("Embodied AI Proxy — TUI"))
-	main.WriteByte('\n')
-
-	statusLine := fmt.Sprintf(
-		"Backend: %s [%s] | %s | LLM: %s",
-		m.AppServerURL, connStatusText(m.connMsg), bridgeStatusText(m.bridgeConnected), llmStatusText(m.llmProvider, m.llmModel),
-	)
-	main.WriteString(statusStyle.Render(statusLine))
-
-	main.WriteByte('\n')
-	if len(m.availableObjects) > 0 {
-		main.WriteString(mutedStyle.Render("Objects: ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68")).Render(strings.Join(m.availableObjects, ", ")))
-	} else {
-		main.WriteString(mutedStyle.Render("Objects: (none discovered yet)"))
-	}
-
-	main.WriteByte('\n')
-	dividerWidth := m.viewport.Width
-	if dividerWidth < 1 {
-		dividerWidth = 1
-	}
-	main.WriteString(dividerStyle.Render(strings.Repeat("─", dividerWidth)))
-	main.WriteByte('\n')
-
-	main.WriteString(m.viewport.View())
-	main.WriteByte('\n')
-
-	if m.inFlight {
-		main.WriteByte('\n')
-		elapsed := time.Since(m.promptSentAt).Round(time.Second)
-		main.WriteString(statusStyle.Render(m.spin.View() + " waiting for response... (" + elapsed.String() + ")"))
-	} else {
-		main.WriteByte('\n')
-	}
-	main.WriteByte('\n')
-
-	main.WriteString(inputBoxStyle.Width(dividerWidth).Render(m.input.View()))
-	main.WriteByte('\n')
-
-	main.WriteString(mutedStyle.Render("(Enter to submit • /help to view help • ctrl+c to quit)"))
-
-	mainCol := lipgloss.NewStyle().
-		Padding(1, 2).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3B4261")).
-		Render(main.String())
+	mainCol := renderMainColumn(m, m.viewport.View())
 
 	if !m.showSidebar {
 		return mainCol
 	}
 
-	if m.Width >= minWidthForSidebar {
-		sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, sidebarWidth, m.Height)
-		return lipgloss.JoinHorizontal(lipgloss.Top, mainCol, sidebar)
-	}
+	sidebar := renderSidebar(
+		m.telemetry,
+		m.hardwareClientLog,
+		sidebarWidth,
+		max(1, m.Height-2),
+	)
 
-	stackedWidth := contentWidth(m.Width) + 4
-	sidebar := renderSidebar(m.telemetry, m.hardwareClientLog, stackedWidth, 8)
-	return lipgloss.JoinVertical(lipgloss.Left, mainCol, sidebar)
+	return lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		mainCol,
+		sidebar,
+	)
 }
 
 func llmStatusText(provider, model string) string {

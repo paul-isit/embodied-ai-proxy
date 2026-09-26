@@ -103,6 +103,20 @@ func elapsedTick() tea.Cmd {
 	})
 }
 
+// promptTimeoutMsg fires once, some time after a prompt was sent, to force
+// inFlight to clear if no action_recipe/error-level log_event ever arrived
+type promptTimeoutMsg struct {
+	sentAt time.Time
+}
+
+const promptTimeout = 30 * time.Second //timeout after 30 seconds
+
+func promptTimeoutCmd(sentAt time.Time) tea.Cmd {
+	return tea.Tick(promptTimeout, func(time.Time) tea.Msg {
+		return promptTimeoutMsg{sentAt: sentAt}
+	})
+}
+
 // fetchSystemInfo returns a tea.Cmd that calls GET /api/info in the
 // background, since APIClient.FetchInfo blocks on HTTP and must not run
 // directly inside Update.
@@ -128,12 +142,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.Ready = true
-		if m.showSidebar && m.Width >= minWidthForSidebar {
-			m.viewport.Width = contentWidth(m.Width) - sidebarWidth
+
+		if m.showSidebar {
+			m.viewport.Width = contentWidth(m.Width) - sidebarWidth - 6
 		} else {
-			m.viewport.Width = contentWidth(m.Width)
+			m.viewport.Width = contentWidth(m.Width) - 6
 		}
-		m.viewport.Height = max(3, m.Height-fixedLines)
+
+		if m.viewport.Width < 1 {
+			m.viewport.Width = 1
+		}
+
+		m.viewport.Height = calculateViewportHeight(m)
+
 		m = m.refreshViewport()
 		return m, tea.ClearScreen
 
@@ -165,6 +186,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}	
+
 		m = m.appendEntry("", formatSystemInfo(msg))
 		return m, nil
 
@@ -184,6 +206,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.Envelope:
 		return m.handleEnvelope(msg)
+	
+	case promptTimeoutMsg:
+		if m.inFlight && m.promptSentAt.Equal(msg.sentAt) {
+			m.inFlight = false
+			m = m.appendEntry(errTag, "No response received within 30s - you can try again.")
+		}
+	return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -241,9 +270,7 @@ func (m Model) handleEnvelope(msg client.Envelope) (tea.Model, tea.Cmd) {
 
 	case client.TypeLogEvent:
 		m = m.appendEntry("", formatLogEvent(msg.Payload))
-		if isErrorLevel(msg.Payload) {
-			m.inFlight = false
-		}
+		m.inFlight = false
 		return m, waitForWSMsg(m.ws.MsgChan())
 
 	default:
@@ -284,13 +311,12 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.inFlight = true
 	m.promptSentAt = time.Now()
 	m.hardwareClientLog = nil
-	return m, tea.Batch(m.spin.Tick, elapsedTick())
+	return m, tea.Batch(m.spin.Tick, elapsedTick(), promptTimeoutCmd(m.promptSentAt))
 }
 
-// handleSlashCommand parses and dispatches a "/command" line. 
 func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
 	name := strings.ToLower(strings.TrimPrefix(text, "/"))
-	name = strings.Fields(name)[0] 
+	name = strings.Fields(name)[0]
 
 	switch name {
 	case "help", "h":
@@ -308,11 +334,17 @@ func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
 		return m, fetchSystemInfo(m.api, "llm")
 	case "sidebar":
 		m.showSidebar = !m.showSidebar
-		if m.showSidebar && m.Width >= minWidthForSidebar {
-			m.viewport.Width = contentWidth(m.Width) - sidebarWidth
+
+		if m.showSidebar {
+			m.viewport.Width = contentWidth(m.Width) - sidebarWidth - 6
 		} else {
-			m.viewport.Width = contentWidth(m.Width)
+			m.viewport.Width = contentWidth(m.Width) - 6
 		}
+
+		if m.viewport.Width < 1 {
+			m.viewport.Width = 1
+		}
+
 		m = m.refreshViewport()
 		return m, tea.ClearScreen
 	case "save":
@@ -481,10 +513,4 @@ func decodeMiddlewareStatus(payload json.RawMessage) *MiddlewareStatus {
 	return v.MiddlewareStatus
 }
 
-func isErrorLevel(payload json.RawMessage) bool {
-	var evt LogEventMsg
-	if err := json.Unmarshal(payload, &evt); err != nil {
-		return false
-	}
-	return strings.EqualFold(evt.Level, "error")
-}
+
