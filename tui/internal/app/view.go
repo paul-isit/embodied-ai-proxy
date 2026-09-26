@@ -384,18 +384,14 @@ func renderMainColumn(m Model, viewportContent string) string {
 }
 
 func calculateViewportHeight(m Model) int {
-	// Use a single line as a placeholder for the viewport.
+	
 	placeholder := " "
 
-	// Render the complete main column with that one-line placeholder.
-	//
-	// This tells us how tall everything outside the real viewport is.
 	withPlaceholder := renderMainColumn(m, placeholder)
 
 	staticHeight := lipgloss.Height(withPlaceholder)
 
-	// The placeholder accounts for one viewport row, so remove it
-	// before calculating how much room is actually available.
+
 	nonViewportHeight := staticHeight - 1
 
 	height := m.Height - nonViewportHeight
