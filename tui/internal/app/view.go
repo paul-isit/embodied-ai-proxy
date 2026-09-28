@@ -155,6 +155,7 @@ func helpText(verbosity int) string {
 		"    /llm             Fetch LLM info",
 		"    /sidebar         Toggle telemetry sidebar",
 		"    /save            Save session to a text file",
+		"    /reset-env       Reset environment objects/obstacles to their configured defaults",
 		"",
 		"  Session",
 		"    Enter          Submit prompt",
@@ -172,10 +173,20 @@ func formatLogEvent(payload json.RawMessage) string {
 	}
 
 	tag := sysTag
-	if strings.EqualFold(evt.Level, "error") {
+	if isErrorLevel(payload) {
 		tag = errTag
 	}
 	return tag + evt.Message
+}
+
+// isErrorLevel reports whether a log_event envelope's level is "error"
+// (case-insensitive), matching formatLogEvent's own tag choice.
+func isErrorLevel(payload json.RawMessage) bool {
+	var evt LogEventMsg
+	if err := json.Unmarshal(payload, &evt); err != nil {
+		return false
+	}
+	return strings.EqualFold(evt.Level, "error")
 }
 
 func contentWidth(termWidth int) int {
@@ -207,7 +218,7 @@ func bridgeStatusText(connected *bool) string {
 	}
 }
 
-// connStatusText renders the connection state word ("connected" / "disconnected...") 
+// connStatusText renders the connection state word ("connected" / "disconnected...")
 func connStatusText(connMsg string) string {
 	if connMsg == "connected" {
 		return connectedStyle.Render(connMsg)
@@ -241,35 +252,35 @@ func stateStyle(state int) lipgloss.Style {
 // width is the sidebar's total rendered width, height its total rendered
 // height, both already accounting for border/padding via the returned style.
 func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height int) string {
-    innerWidth := width - 4
-    if innerWidth < 1 {
-        innerWidth = 1
-    }
+	innerWidth := width - 4
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
 
-    title := sidebarTitle.Width(innerWidth).Render("--- MIDDLEWARE STATUS ---")
+	title := sidebarTitle.Width(innerWidth).Render("--- MIDDLEWARE STATUS ---")
 
-    var b strings.Builder
-    b.WriteString(title)
-    b.WriteByte('\n')
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteByte('\n')
 
-    if telemetry == nil {
-        b.WriteString(mutedStyle.Width(innerWidth).Render("No telemetry yet"))
-    } else {
-        overallStyle := stateStyle(telemetry.SummaryState).Width(innerWidth)
-        b.WriteString(overallStyle.Render("System: " + stateLabel(telemetry.SummaryState)))
-        b.WriteByte('\n')
+	if telemetry == nil {
+		b.WriteString(mutedStyle.Width(innerWidth).Render("No telemetry yet"))
+	} else {
+		overallStyle := stateStyle(telemetry.SummaryState).Width(innerWidth)
+		b.WriteString(overallStyle.Render("System: " + stateLabel(telemetry.SummaryState)))
+		b.WriteByte('\n')
 
-        for _, n := range telemetry.IndividualStates {
-            b.WriteByte('\n')
-            lineStyle := stateStyle(n.State).Width(innerWidth)
-            line := fmt.Sprintf("• %s: %s", n.NodeName, stateLabel(n.State))
-            b.WriteString(lineStyle.Render(line))
-            if n.StatusMessage != "" {
-                b.WriteByte('\n')
-                b.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
-            }
-        }
-    }
+		for _, n := range telemetry.IndividualStates {
+			b.WriteByte('\n')
+			lineStyle := stateStyle(n.State).Width(innerWidth)
+			line := fmt.Sprintf("• %s: %s", n.NodeName, stateLabel(n.State))
+			b.WriteString(lineStyle.Render(line))
+			if n.StatusMessage != "" {
+				b.WriteByte('\n')
+				b.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
+			}
+		}
+	}
 
 	b.WriteString("\n\n")
 	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- CURRENT EXECUTION ---"))
@@ -283,13 +294,13 @@ func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height in
 		}
 	}
 
-    return lipgloss.NewStyle().
-        Width(width).
-        Height(height).
-        Padding(1, 1, 0, 1). // Top: 1 (matches mainCol padding), Right: 1, Bottom: 0, Left: 1
-        Border(lipgloss.NormalBorder()).
-        BorderForeground(lipgloss.Color("#565F89")).
-        Render(b.String())
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Padding(1, 1, 0, 1). // Top: 1 (matches mainCol padding), Right: 1, Bottom: 0, Left: 1
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#565F89")).
+		Render(b.String())
 }
 
 const sidebarWidth = 34
@@ -384,13 +395,12 @@ func renderMainColumn(m Model, viewportContent string) string {
 }
 
 func calculateViewportHeight(m Model) int {
-	
+
 	placeholder := " "
 
 	withPlaceholder := renderMainColumn(m, placeholder)
 
 	staticHeight := lipgloss.Height(withPlaceholder)
-
 
 	nonViewportHeight := staticHeight - 1
 

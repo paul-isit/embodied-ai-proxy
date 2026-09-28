@@ -10,7 +10,14 @@ import (
 type SystemInfoMsg struct {
 	Info *client.SystemInfo
 	Err  error
-	Use string
+	Use  string
+}
+
+// ResetEnvironmentMsg delivers the result of a POST /api/reset call,
+// triggered by the /reset-env slash command.
+type ResetEnvironmentMsg struct {
+	Result *client.ResetResult
+	Err    error
 }
 
 type WSConnectedMsg struct{}
