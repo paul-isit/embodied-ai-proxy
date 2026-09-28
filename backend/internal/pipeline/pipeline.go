@@ -132,7 +132,26 @@ func (p *Pipeline) Run(ctx context.Context, userText string, environment rosbrid
 	}
 
 	log.Printf("[Pipeline] command %q: produced valid recipe: %s", userText, candidate)
+
+	if recipeStatus(doc) == "success" {
+		return p.finalizeSuccess(userText, rawOutput, doc, environment)
+	}
+
 	return Result{RawOutput: rawOutput, Parsed: json.RawMessage(candidate), Doc: doc}
+}
+
+// finalizeSuccess runs deterministic name resolution over an already
+// schema-valid "success" recipe before handing it back to the caller.
+func (p *Pipeline) finalizeSuccess(userText, rawOutput string, doc any, environment rosbridge.EnvironmentParams) Result {
+	resolvedDoc, resolvedRaw, err := resolveRecipeNames(doc, environment)
+	if err != nil {
+		log.Printf("[Pipeline] command %q: name resolution failed: %v", userText, err)
+		return Result{RawOutput: rawOutput, Error: fmt.Sprintf("name resolution failed: %v", err)}
+	}
+	if recipeStatus(resolvedDoc) != "success" {
+		log.Printf("[Pipeline] command %q: recipe rejected during name resolution: %s", userText, resolvedRaw)
+	}
+	return Result{RawOutput: rawOutput, Parsed: json.RawMessage(resolvedRaw), Doc: resolvedDoc}
 }
 
 func recipeStatus(doc any) string {

@@ -181,6 +181,70 @@ func TestPipeline_Run_StripsMarkdownFences(t *testing.T) {
 	}
 }
 
+func TestPipeline_Run_ResolvesTypoedObjectName(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"pickup","description":"grab it","parameters":{"target":"blu cube"}}]}`)
+	defer llmProxy.Close()
+
+	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	result := p.Run(context.Background(), "pick up the blu cube", rosbridge.EnvironmentParams{
+		Objects: []string{"water_bottle", "push_block", "blue_cube", "delivery_tray"},
+	})
+
+	if result.Error != "" {
+		t.Fatalf("Run() error = %q", result.Error)
+	}
+	if recipeStatus(result.Doc) != "success" {
+		t.Fatalf("expected the typo to resolve to a success recipe, got %s", result.Parsed)
+	}
+	if !strings.Contains(string(result.Parsed), `"target":"blue_cube"`) {
+		t.Fatalf("expected the resolved recipe to use the canonical name blue_cube, got %s", result.Parsed)
+	}
+}
+
+func TestPipeline_Run_AmbiguousObjectNameBecomesError(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"pickup","description":"grab it","parameters":{"target":"the cube"}}]}`)
+	defer llmProxy.Close()
+
+	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	result := p.Run(context.Background(), "pick up the cube", rosbridge.EnvironmentParams{
+		Objects: []string{"blue_cube", "red_cube", "delivery_tray"},
+	})
+
+	if result.Error != "" {
+		t.Fatalf("Run() error = %q", result.Error)
+	}
+	if recipeStatus(result.Doc) != "error" {
+		t.Fatalf("expected an ambiguous reference to reject the recipe, got %s", result.Parsed)
+	}
+	m, _ := result.Doc.(map[string]any)
+	if m["error_type"] != "invalid_command" {
+		t.Fatalf("expected error_type invalid_command, got %v", m["error_type"])
+	}
+}
+
+func TestPipeline_Run_UnresolvableObjectNameBecomesError(t *testing.T) {
+	// The other real observed failure: a garbled/unrelated string in a name
+	// field shouldn't be silently passed through to execution.
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"pickup","description":"grab it","parameters":{"target":"pivk"}}]}`)
+	defer llmProxy.Close()
+
+	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	result := p.Run(context.Background(), "pivk up teh bottle", rosbridge.EnvironmentParams{
+		Objects: []string{"water_bottle", "push_block", "blue_cube", "delivery_tray"},
+	})
+
+	if result.Error != "" {
+		t.Fatalf("Run() error = %q", result.Error)
+	}
+	if recipeStatus(result.Doc) != "error" {
+		t.Fatalf("expected an unresolvable reference to reject the recipe, got %s", result.Parsed)
+	}
+	m, _ := result.Doc.(map[string]any)
+	if m["error_type"] != "missing_object" {
+		t.Fatalf("expected error_type missing_object, got %v", m["error_type"])
+	}
+}
+
 func TestPipeline_HandlePrompt_BroadcastsActionRecipeAndExecutesOnBridge(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
 	defer llmProxy.Close()
