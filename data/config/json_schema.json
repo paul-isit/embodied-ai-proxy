@@ -226,7 +226,10 @@
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
                         "description": "The object currently held. Required: its own height is used to compute a collision-safe release position above the destination, and its stored pose is updated to the destination once released."
                       },
-                      "destination": { "$ref": "#/$defs/objectName" },
+                      "destination": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "Where to place the object. Optional - if the command doesn't name a destination, omit this and the object is released right where it already is, not carried anywhere."
+                      },
                       "place_offset": {
                         "allOf": [{ "$ref": "#/$defs/offset" }],
                         "description": "Height added above the destination before releasing. Defaults to 0.1 if omitted."
@@ -236,7 +239,7 @@
                         "description": "Gripper position to release to. Defaults to 0.0 (open) if omitted."
                       }
                     },
-                    "required": ["destination", "target"],
+                    "required": ["target"],
                     "additionalProperties": false
                   }
                 },
