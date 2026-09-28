@@ -137,6 +137,12 @@ func (p *Pipeline) Run(ctx context.Context, userText string, environment rosbrid
 		return p.finalizeSuccess(userText, rawOutput, doc, environment)
 	}
 
+	if recipeStatus(doc) == "error" && recipeErrorType(doc) == "missing_object" {
+		if result, retried := p.recoverMissingObject(ctx, userText, fullPrompt, rawOutput, doc, environment); retried {
+			return result
+		}
+	}
+
 	return Result{RawOutput: rawOutput, Parsed: json.RawMessage(candidate), Doc: doc}
 }
 
@@ -160,6 +166,24 @@ func recipeStatus(doc any) string {
 		return ""
 	}
 	s, _ := m["status"].(string)
+	return s
+}
+
+func recipeErrorType(doc any) string {
+	m, ok := doc.(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := m["error_type"].(string)
+	return s
+}
+
+func recipeErrorMessage(doc any) string {
+	m, ok := doc.(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := m["message"].(string)
 	return s
 }
 
