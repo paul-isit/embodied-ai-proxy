@@ -139,6 +139,8 @@ func TestStatusUpdateEnvelopeUpdatesObjectList(t *testing.T) {
 	}
 
 	nm.Ready = true
+	nm.Width = 100
+	nm.Height = 30
 	view := nm.View()
 	if !strings.Contains(view, "red_cube, green_apple") {
 		t.Fatalf("expected view to contain objects, got %s", view)

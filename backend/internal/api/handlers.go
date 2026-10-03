@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"embodied-ai-proxy/backend/internal/pipeline"
 	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/websocket"
@@ -34,6 +35,39 @@ func InfoHandler(cfg *sharedconfig.AppConfig, hub *websocket.Hub, p *pipeline.Pi
 			ClientsConnected: clients,
 			SystemPrompt:     p.SystemPrompt(),
 		})
+	}
+}
+
+// resetter is the subset of rosbridge.Client's behaviour ResetHandler
+// needs - a small interface so tests can fake it without a real rosbridge
+// connection.
+type resetter interface {
+	ResetEnvironment(ctx context.Context) (string, error)
+}
+
+type resetResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// ResetHandler exposes POST /api/reset: triggers the middleware's
+// /reset_environment service (reload objects/obstacles from their config
+// files, clear held-object tracking), for the TUI's /reset-env command.
+func ResetHandler(rb resetter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(resetResponse{Message: "method not allowed"})
+			return
+		}
+
+		message, err := rb.ResetEnvironment(r.Context())
+		if err != nil {
+			json.NewEncoder(w).Encode(resetResponse{Success: false, Message: err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(resetResponse{Success: true, Message: message})
 	}
 }
 

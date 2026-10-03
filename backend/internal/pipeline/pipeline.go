@@ -132,7 +132,40 @@ func (p *Pipeline) Run(ctx context.Context, userText string, environment rosbrid
 	}
 
 	log.Printf("[Pipeline] command %q: produced valid recipe: %s", userText, candidate)
+
+	if recipeStatus(doc) == "success" {
+		return p.finalizeSuccess(userText, rawOutput, doc, environment)
+	}
+
+	if recipeStatus(doc) == "error" && recipeErrorType(doc) == "missing_object" {
+		if result, retried := p.recoverMissingObject(ctx, userText, fullPrompt, rawOutput, doc, environment); retried {
+			return result
+		}
+	}
+
 	return Result{RawOutput: rawOutput, Parsed: json.RawMessage(candidate), Doc: doc}
+}
+
+// finalizeSuccess runs deterministic name resolution over an already
+// schema-valid "success" recipe before handing it back to the caller.
+func (p *Pipeline) finalizeSuccess(userText, rawOutput string, doc any, environment rosbridge.EnvironmentParams) Result {
+	resolvedDoc, resolvedRaw, err := resolveRecipeNames(doc, environment)
+	if err != nil {
+		log.Printf("[Pipeline] command %q: name resolution failed: %v", userText, err)
+		return Result{RawOutput: rawOutput, Error: fmt.Sprintf("name resolution failed: %v", err)}
+	}
+	// A rejection here (ambiguous or unresolvable name) is deliberately left
+	// as a normal parsed "error" document rather than surfaced via
+	// Result.Error - Result.Error is reserved for pipeline-level Go errors
+	// (LLM call failed, re-marshal failed), while a recipe-level error is
+	// communicated through Doc/Parsed the same way an LLM-authored refusal
+	// is (see the return at the bottom of Run, and recoverMissingObject's
+	// own no-retry branches for ambiguous/unmatched names) - callers only
+	// ever need to check Doc's status, never both that and Result.Error.
+	if recipeStatus(resolvedDoc) != "success" {
+		log.Printf("[Pipeline] command %q: recipe rejected during name resolution: %s", userText, resolvedRaw)
+	}
+	return Result{RawOutput: rawOutput, Parsed: json.RawMessage(resolvedRaw), Doc: resolvedDoc}
 }
 
 func recipeStatus(doc any) string {
@@ -141,6 +174,24 @@ func recipeStatus(doc any) string {
 		return ""
 	}
 	s, _ := m["status"].(string)
+	return s
+}
+
+func recipeErrorType(doc any) string {
+	m, ok := doc.(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := m["error_type"].(string)
+	return s
+}
+
+func recipeErrorMessage(doc any) string {
+	m, ok := doc.(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := m["message"].(string)
 	return s
 }
 

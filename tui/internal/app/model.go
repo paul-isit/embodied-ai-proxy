@@ -40,7 +40,7 @@ type Model struct {
 
 	availableObjects []string
 	telemetry        *MiddlewareStatus
-	showSidebar       bool
+	showSidebar      bool
 
 	spin spinner.Model
 
@@ -48,14 +48,13 @@ type Model struct {
 	historyIndex int
 	historyDraft string
 
-	verbosity      int
-	promptSentAt   time.Time
+	verbosity    int
+	promptSentAt time.Time
 
 	llmProvider string
 	llmModel    string
 
 	hardwareClientLog []string
-
 }
 
 // NewModel creates a new initial Model instance
@@ -129,10 +128,19 @@ func fetchSystemInfo(api *client.APIClient, use string) tea.Cmd {
 	}
 }
 
+func resetEnvironment(api *client.APIClient) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, err := api.ResetEnvironment(ctx)
+		return ResetEnvironmentMsg{Result: result, Err: err}
+	}
+}
+
 // Init initialises the event loop and runs the startup commands
 func (m Model) Init() tea.Cmd {
 	m.ws.Start()
-	return tea.Batch(textinput.Blink, waitForWSMsg(m.ws.MsgChan()), fetchSystemInfo(m.api, "llm_header"),)
+	return tea.Batch(textinput.Blink, waitForWSMsg(m.ws.MsgChan()), fetchSystemInfo(m.api, "llm_header"))
 }
 
 // Update handles incoming messages
@@ -185,9 +193,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.llmModel = msg.Info.LLM.Model
 			}
 			return m, nil
-		}	
+		}
 
 		m = m.appendEntry("", formatSystemInfo(msg))
+		return m, nil
+
+	case ResetEnvironmentMsg:
+		if msg.Err != nil {
+			m = m.appendEntry(errTag, "environment reset failed: "+msg.Err.Error())
+		} else if msg.Result != nil && !msg.Result.Success {
+			m = m.appendEntry(errTag, "environment reset failed: "+msg.Result.Message)
+		} else if msg.Result != nil {
+			m = m.appendEntry(sysTag, msg.Result.Message)
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -206,13 +224,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.Envelope:
 		return m.handleEnvelope(msg)
-	
+
 	case promptTimeoutMsg:
 		if m.inFlight && m.promptSentAt.Equal(msg.sentAt) {
 			m.inFlight = false
 			m = m.appendEntry(errTag, "No response received within 60s - you can try again.")
 		}
-	return m, nil
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -332,6 +350,9 @@ func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
 		return m, fetchSystemInfo(m.api, "system")
 	case "llm":
 		return m, fetchSystemInfo(m.api, "llm")
+	case "reset-env":
+		m = m.appendEntry(sysTag, "Resetting environment...")
+		return m, resetEnvironment(m.api)
 	case "sidebar":
 		m.showSidebar = !m.showSidebar
 
@@ -512,5 +533,3 @@ func decodeMiddlewareStatus(payload json.RawMessage) *MiddlewareStatus {
 	}
 	return v.MiddlewareStatus
 }
-
-
