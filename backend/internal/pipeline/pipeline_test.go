@@ -292,6 +292,32 @@ func TestPipeline_Run_RetriesMissingObjectRefusalWithSingleCandidate(t *testing.
 	}
 }
 
+func TestPipeline_Run_RetriesMissingObjectRefusalWithDoubleQuotedName(t *testing.T) {
+	// The system prompt's examples all single-quote the flagged name, but
+	// message text is still LLM-authored free text - the schema doesn't
+	// constrain its exact wording - so a refusal quoting with double quotes
+	// instead must still be recoverable, not silently fall through unchanged.
+	refusal := `{"status":"error","error_type":"missing_object","message":"Execution aborted. Target object \"blu cube\" was not found in the environment map. Available targets are: water_bottle, push_block, blue_cube, delivery_tray."}`
+	corrected := `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"pickup","description":"grab it","parameters":{"target":"blue_cube"}}]}`
+	llmProxy, calls := fakeLLMProxySequence(t, []string{refusal, corrected})
+	defer llmProxy.Close()
+
+	p := New(websocket.NewHub(), &mockROSBridge{connected: true}, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+	result := p.Run(context.Background(), "pick up the blu cube", rosbridge.EnvironmentParams{
+		Objects: []string{"water_bottle", "push_block", "blue_cube", "delivery_tray"},
+	})
+
+	if result.Error != "" {
+		t.Fatalf("Run() error = %q", result.Error)
+	}
+	if recipeStatus(result.Doc) != "success" {
+		t.Fatalf("expected the retry to recover a success recipe, got %s", result.Parsed)
+	}
+	if got := atomic.LoadInt32(calls); got != 2 {
+		t.Fatalf("expected exactly 2 LLM calls (original + one retry), got %d", got)
+	}
+}
+
 func TestPipeline_Run_MissingObjectRefusalAmbiguousDoesNotRetryLLM(t *testing.T) {
 	refusal := `{"status":"error","error_type":"missing_object","message":"Execution aborted. Target object 'the cube' was not found in the environment map. Available targets are: blue_cube, red_cube, delivery_tray."}`
 	llmProxy, calls := fakeLLMProxySequence(t, []string{refusal})

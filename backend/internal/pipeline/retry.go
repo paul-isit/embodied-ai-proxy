@@ -11,11 +11,16 @@ import (
 	"strings"
 )
 
-// quotedTerm pulls the first single-quoted substring out of a message -
-// the system prompt's own "graceful abort" examples (see Example 11)
-// consistently quote the exact object name the LLM couldn't resolve, e.g.
-// "Target object 'blu cube' was not found...".
-var quotedTerm = regexp.MustCompile(`'([^']+)'`)
+// quotedTerm pulls the first quoted substring out of a message - the system
+// prompt's own "graceful abort" examples (see Example 11) consistently
+// single-quote the exact object name the LLM couldn't resolve, e.g.
+// "Target object 'blu cube' was not found...". Double quotes are matched
+// too as a fallback: message text is still LLM-authored free text (the
+// schema only requires a non-empty string), so a refusal that doesn't
+// follow the taught convention is possible - in that case this simply
+// fails to match and recoverMissingObject falls through to the LLM's
+// own refusal unchanged, rather than crashing or retrying incorrectly.
+var quotedTerm = regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
 
 // missingObjectCorrectionTemplate is appended to the original prompt for a
 // single retry attempt, not baked into the static system prompt - it only
@@ -47,7 +52,12 @@ func (p *Pipeline) recoverMissingObject(ctx context.Context, userText, originalP
 	if match == nil {
 		return Result{}, false
 	}
+	// Exactly one alternative matched - single-quoted (group 1) or
+	// double-quoted (group 2) - the other is always empty.
 	flagged := match[1]
+	if flagged == "" {
+		flagged = match[2]
+	}
 
 	outcome := matcher.Resolve(flagged, environment.Objects)
 	switch {

@@ -154,6 +154,14 @@ func (p *Pipeline) finalizeSuccess(userText, rawOutput string, doc any, environm
 		log.Printf("[Pipeline] command %q: name resolution failed: %v", userText, err)
 		return Result{RawOutput: rawOutput, Error: fmt.Sprintf("name resolution failed: %v", err)}
 	}
+	// A rejection here (ambiguous or unresolvable name) is deliberately left
+	// as a normal parsed "error" document rather than surfaced via
+	// Result.Error - Result.Error is reserved for pipeline-level Go errors
+	// (LLM call failed, re-marshal failed), while a recipe-level error is
+	// communicated through Doc/Parsed the same way an LLM-authored refusal
+	// is (see the return at the bottom of Run, and recoverMissingObject's
+	// own no-retry branches for ambiguous/unmatched names) - callers only
+	// ever need to check Doc's status, never both that and Result.Error.
 	if recipeStatus(resolvedDoc) != "success" {
 		log.Printf("[Pipeline] command %q: recipe rejected during name resolution: %s", userText, resolvedRaw)
 	}

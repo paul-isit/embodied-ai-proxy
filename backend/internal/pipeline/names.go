@@ -32,21 +32,32 @@ type nameField struct {
 // with the same error shape the LLM itself would produce for a missing or
 // ambiguous object (status/error_type/message), so callers don't need to
 // treat this differently from an LLM-authored refusal.
+//
+// doc is expected to have already passed schema validation as a "success"
+// recipe - the schema guarantees 'steps' is an array, every step has a
+// 'parameters' object, and target/destination/vector/orientation are each
+// either absent (legitimately optional) or a non-empty string. The checks
+// below enforce that expectation explicitly (returning an error rather than
+// silently skipping) so a violation - e.g. a future caller passing in an
+// unvalidated doc - fails loudly instead of quietly resolving nothing.
 func resolveRecipeNames(doc any, environment rosbridge.EnvironmentParams) (any, []byte, error) {
 	root, ok := doc.(map[string]any)
 	if !ok {
 		return doc, nil, fmt.Errorf("recipe document is not a JSON object")
 	}
-	steps, _ := root["steps"].([]any)
+	steps, ok := root["steps"].([]any)
+	if !ok {
+		return doc, nil, fmt.Errorf("recipe 'steps' is missing or not an array (expected a schema-validated recipe)")
+	}
 
-	for _, rawStep := range steps {
+	for i, rawStep := range steps {
 		step, ok := rawStep.(map[string]any)
 		if !ok {
-			continue
+			return doc, nil, fmt.Errorf("step %d is not a JSON object (expected a schema-validated recipe)", i+1)
 		}
 		params, ok := step["parameters"].(map[string]any)
 		if !ok {
-			continue
+			return doc, nil, fmt.Errorf("step %d 'parameters' is missing or not an object (expected a schema-validated recipe)", i+1)
 		}
 
 		for _, field := range []nameField{
@@ -55,9 +66,16 @@ func resolveRecipeNames(doc any, environment rosbridge.EnvironmentParams) (any, 
 			{"vector", environment.Movements, "movement"},
 			{"orientation", environment.Orientations, "orientation"},
 		} {
-			value, ok := params[field.key].(string)
-			if !ok || value == "" {
-				continue
+			raw, present := params[field.key]
+			if !present {
+				continue // optional field omitted - not an error, e.g. dropoff's held-object fallback
+			}
+			value, ok := raw.(string)
+			if !ok {
+				return doc, nil, fmt.Errorf("step %d parameter %q is not a string (expected a schema-validated recipe)", i+1, field.key)
+			}
+			if value == "" {
+				continue // schema enforces minLength 1 when present; stay defensive rather than resolve garbage
 			}
 
 			outcome := matcher.Resolve(value, field.list)
