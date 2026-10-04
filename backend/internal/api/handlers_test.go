@@ -2,11 +2,13 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"embodied-ai-proxy/backend/internal/pipeline"
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	sharedconfig "embodied-ai-proxy/shared/config"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -72,6 +74,67 @@ func TestInfoHandler_ReportsServerProxyAndHubState(t *testing.T) {
 	}
 	if got.SystemPrompt == "" {
 		t.Error("expected system_prompt to be populated")
+	}
+}
+
+type fakeResetter struct {
+	message string
+	err     error
+}
+
+func (f *fakeResetter) ResetEnvironment(ctx context.Context) (string, error) {
+	return f.message, f.err
+}
+
+func TestResetHandler_Success(t *testing.T) {
+	rb := &fakeResetter{message: "Environment reset: 4 object(s), 2 obstacle(s) restored to configured defaults"}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/reset", nil)
+	w := httptest.NewRecorder()
+	ResetHandler(rb)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var got resetResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !got.Success || got.Message != rb.message {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestResetHandler_Failure(t *testing.T) {
+	rb := &fakeResetter{err: errors.New("environment reset failed: Failed to apply the reset planning scene")}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/reset", nil)
+	w := httptest.NewRecorder()
+	ResetHandler(rb)(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (errors are reported in the body, not the status)", w.Code)
+	}
+
+	var got resetResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.Success || got.Message != rb.err.Error() {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestResetHandler_WrongMethod(t *testing.T) {
+	rb := &fakeResetter{}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/reset", nil)
+	w := httptest.NewRecorder()
+	ResetHandler(rb)(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", w.Code)
 	}
 }
 

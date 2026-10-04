@@ -49,3 +49,32 @@ func TestFetchInfoSuccess(t *testing.T) {
 		t.Errorf("expected BridgeConnected to be true")
 	}
 }
+
+func TestResetEnvironmentSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/reset" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ResetResult{
+			Success: true,
+			Message: "Environment reset: 4 object(s), 2 obstacle(s) restored to configured defaults",
+		})
+	}))
+	defer server.Close()
+
+	client := NewAPIClient(server.URL)
+	result, err := client.ResetEnvironment(context.Background())
+	if err != nil {
+		t.Fatalf("ResetEnvironment failed: %v", err)
+	}
+	if !result.Success {
+		t.Errorf("expected Success to be true")
+	}
+	if result.Message == "" {
+		t.Errorf("expected a non-empty message")
+	}
+}

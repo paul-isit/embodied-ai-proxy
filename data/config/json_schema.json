@@ -224,9 +224,12 @@
                     "properties": {
                       "target": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "The object currently held. Required: its own height is used to compute a collision-safe release position above the destination, and its stored pose is updated to the destination once released."
+                        "description": "The object being placed. Optional - if the command doesn't name one, omit this and it refers to whatever object is currently held. Its height is used to compute a collision-safe release position, and its stored pose is updated once released."
                       },
-                      "destination": { "$ref": "#/$defs/objectName" },
+                      "destination": {
+                        "allOf": [{ "$ref": "#/$defs/objectName" }],
+                        "description": "Where to place the object. Optional - if the command doesn't name a destination, omit this and the object is released right where it already is, not carried anywhere."
+                      },
                       "place_offset": {
                         "allOf": [{ "$ref": "#/$defs/offset" }],
                         "description": "Height added above the destination before releasing. Defaults to 0.1 if omitted."
@@ -236,7 +239,6 @@
                         "description": "Gripper position to release to. Defaults to 0.0 (open) if omitted."
                       }
                     },
-                    "required": ["destination", "target"],
                     "additionalProperties": false
                   }
                 },
@@ -255,15 +257,15 @@
                     "properties": {
                       "target": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "The object currently held. Required, and must be the object the preceding 'pickup' grasped (ideally with grasp_style: 'side', so it starts out level) - pour verifies it's actually the held object and fails rather than guessing if not."
+                        "description": "The object currently held. Optional - if the command doesn't name one, omit this and it refers to whatever is currently held. If given, must be the object the preceding 'pickup' grasped (ideally with grasp_style: 'side', so it starts out level) - pour verifies it's actually the held object and fails rather than guessing if not."
                       },
                       "destination": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "Named destination to carry the object above before tilting. Alternative to 'direction' - give exactly one of the two."
+                        "description": "Named destination to carry the object above before tilting. Optional - alternative to 'direction', give at most one of the two. If neither is given, the object is tilted right where it already is, with no horizontal move first."
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to carry the object in, relative to its own original bearing from the arm, before tilting. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
+                        "description": "Direction to carry the object in, relative to its own original bearing from the arm, before tilting. Optional - alternative to 'destination', give at most one of the two. Requires 'distance' to be meaningful. If neither this nor 'destination' is given, the object is tilted right where it already is, with no horizontal move first."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
@@ -284,11 +286,6 @@
                       },
                       "speed": { "$ref": "#/$defs/speedScale" }
                     },
-                    "required": ["target"],
-                    "anyOf": [
-                      { "required": ["destination"] },
-                      { "required": ["direction"] }
-                    ],
                     "additionalProperties": false
                   }
                 },
@@ -307,7 +304,7 @@
                     "properties": {
                       "target": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "The object currently held. Required, and must be the object the preceding 'pickup' grasped (ideally with grasp_style: 'side', so it starts out level and pointing outward) - thrust verifies it's actually the held object and fails rather than guessing if not."
+                        "description": "The object currently held. Optional - if the command doesn't name one, omit this and it refers to whatever is currently held. If given, must be the object the preceding 'pickup' grasped (ideally with grasp_style: 'side', so it starts out level and pointing outward) - thrust verifies it's actually the held object and fails rather than guessing if not."
                       },
                       "destination": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
@@ -330,7 +327,6 @@
                         "description": "Defaults to 1.0 (full speed) if omitted - thrust is meant to be fast and forceful, unlike pour/push's more careful pace."
                       }
                     },
-                    "required": ["target"],
                     "anyOf": [
                       { "required": ["destination"] },
                       { "required": ["direction"] }
@@ -396,7 +392,7 @@
                     "properties": {
                       "target": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "The object currently held. Required, and must be the object the preceding 'pickup' grasped - throw verifies it's actually the held object and fails rather than guessing if not."
+                        "description": "The object currently held. Optional - if the command doesn't name one, omit this and it refers to whatever is currently held. If given, must be the object the preceding 'pickup' grasped - throw verifies it's actually the held object and fails rather than guessing if not."
                       },
                       "destination": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
@@ -419,7 +415,6 @@
                         "description": "Velocity/acceleration scale for the rotate/wind-up moves only - the fling itself always runs at full speed regardless of this value. Omit for the arm's configured default."
                       }
                     },
-                    "required": ["target"],
                     "anyOf": [
                       { "required": ["destination"] },
                       { "required": ["direction"] }

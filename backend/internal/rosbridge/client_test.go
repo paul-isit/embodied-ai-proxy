@@ -254,3 +254,110 @@ func TestClient_ExecuteRecipe_Failure(t *testing.T) {
 		t.Fatalf("ExecuteRecipe() expected arm trajectory failed error, got = %v", err)
 	}
 }
+
+func TestClient_ResetEnvironment_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+
+		for {
+			var msg map[string]any
+			if err := ws.ReadJSON(&msg); err != nil {
+				return
+			}
+			if msg["op"] == "call_service" && msg["service"] == "/reset_environment" {
+				id, _ := msg["id"].(string)
+				trueVal := true
+				ws.WriteJSON(map[string]any{
+					"op":      "service_response",
+					"id":      id,
+					"service": "/reset_environment",
+					"result":  &trueVal,
+					"values": map[string]any{
+						"success": true,
+						"message": "Environment reset: 4 object(s), 2 obstacle(s) restored to configured defaults",
+					},
+				})
+			}
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	client := NewClient(wsURL, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client.Start(ctx)
+
+	for i := 0; i < 20; i++ {
+		if client.IsConnected() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	message, err := client.ResetEnvironment(context.Background())
+	if err != nil {
+		t.Fatalf("ResetEnvironment() error = %v", err)
+	}
+	if message != "Environment reset: 4 object(s), 2 obstacle(s) restored to configured defaults" {
+		t.Fatalf("ResetEnvironment() message = %q", message)
+	}
+}
+
+func TestClient_ResetEnvironment_Failure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+
+		for {
+			var msg map[string]any
+			if err := ws.ReadJSON(&msg); err != nil {
+				return
+			}
+			if msg["op"] == "call_service" && msg["service"] == "/reset_environment" {
+				id, _ := msg["id"].(string)
+				trueVal := true
+				ws.WriteJSON(map[string]any{
+					"op":      "service_response",
+					"id":      id,
+					"service": "/reset_environment",
+					"result":  &trueVal,
+					"values": map[string]any{
+						"success": false,
+						"message": "Failed to apply the reset planning scene",
+					},
+				})
+			}
+		}
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	client := NewClient(wsURL, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client.Start(ctx)
+
+	for i := 0; i < 20; i++ {
+		if client.IsConnected() {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	_, err := client.ResetEnvironment(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "Failed to apply the reset planning scene") {
+		t.Fatalf("ResetEnvironment() expected planning scene error, got = %v", err)
+	}
+}

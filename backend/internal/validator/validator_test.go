@@ -185,6 +185,40 @@ func TestValidator_PourAcceptsLiftHeightAndTiltAngle(t *testing.T) {
 	}
 }
 
+func TestValidator_PourAcceptsOmittedTarget(t *testing.T) {
+	// "pour it"/"pour" with no target named should be schema-valid - the
+	// middleware falls back to whatever's currently held.
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Pour",
+		"steps": [
+			{"step_id": 1, "action": "pour", "description": "pour it", "parameters": {"destination": "bowl"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil (target should be optional)", err)
+	}
+}
+
+func TestValidator_PourAcceptsAllLocationParamsOmitted(t *testing.T) {
+	// "pour it out" with no object and no location at all - both target
+	// and destination/direction fall back to the held object / in place.
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Pour",
+		"steps": [
+			{"step_id": 1, "action": "pour", "description": "pour it out", "parameters": {}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil (target and destination/direction should all be optional)", err)
+	}
+}
+
 func TestValidator_PourRejectsOldAmountField(t *testing.T) {
 	v := newTestValidator(t)
 
@@ -200,7 +234,10 @@ func TestValidator_PourRejectsOldAmountField(t *testing.T) {
 	}
 }
 
-func TestValidator_PourRequiresDestinationOrDirection(t *testing.T) {
+func TestValidator_PourAcceptsOmittedDestinationAndDirection(t *testing.T) {
+	// "pour it out" with no location named should be schema-valid - unlike
+	// push/thrust/throw, pour doesn't inherently need to go anywhere: with
+	// neither given, the middleware tilts right where the object already is.
 	v := newTestValidator(t)
 
 	raw := []byte(`{
@@ -210,8 +247,8 @@ func TestValidator_PourRequiresDestinationOrDirection(t *testing.T) {
 			{"step_id": 1, "action": "pour", "description": "pour it", "parameters": {"target": "mug"}}
 		]
 	}`)
-	if _, err := v.Validate(raw); err == nil {
-		t.Error("Validate() error = nil, want error for pour with neither destination nor direction")
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil (destination/direction should both be optional)", err)
 	}
 }
 
@@ -227,6 +264,23 @@ func TestValidator_ThrowAcceptsSpeedAndOpenPosition(t *testing.T) {
 	}`)
 	if _, err := v.Validate(raw); err != nil {
 		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidator_ThrowAcceptsOmittedTarget(t *testing.T) {
+	// "throw it"/"throw" with no target named should be schema-valid - the
+	// middleware falls back to whatever's currently held.
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Throw",
+		"steps": [
+			{"step_id": 1, "action": "throw", "description": "throw it", "parameters": {"direction": "forward"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil (target should be optional)", err)
 	}
 }
 
@@ -305,6 +359,23 @@ func TestValidator_ThrustAcceptsLiftHeightAndDestination(t *testing.T) {
 	}
 }
 
+func TestValidator_ThrustAcceptsOmittedTarget(t *testing.T) {
+	// "thrust it"/"thrust" with no target named should be schema-valid -
+	// the middleware falls back to whatever's currently held.
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Thrust",
+		"steps": [
+			{"step_id": 1, "action": "thrust", "description": "thrust it", "parameters": {"destination": "delivery_tray"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil (target should be optional)", err)
+	}
+}
+
 func TestValidator_ThrustRequiresDestinationOrDirection(t *testing.T) {
 	v := newTestValidator(t)
 
@@ -347,5 +418,40 @@ func TestValidator_PushRejectsOldOrientationAndHeightOffsetFields(t *testing.T) 
 	}`)
 	if _, err := v.Validate(raw); err == nil {
 		t.Error("Validate() error = nil, want error for push's old removed orientation/height_offset fields")
+	}
+}
+
+func TestValidator_DropoffAcceptsOmittedTarget(t *testing.T) {
+	// "place it in the delivery tray"/"place in the delivery tray" with no
+	// target named should be schema-valid - the middleware falls back to
+	// whatever's currently held.
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Dropoff",
+		"steps": [
+			{"step_id": 1, "action": "dropoff", "description": "place it down", "parameters": {"destination": "delivery_tray"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil (target should be optional)", err)
+	}
+}
+
+func TestValidator_DropoffAcceptsOmittedTargetAndDestination(t *testing.T) {
+	// "drop it"/"put it down" with neither target nor destination named
+	// should also be schema-valid - releases whatever's held, in place.
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Dropoff",
+		"steps": [
+			{"step_id": 1, "action": "dropoff", "description": "put it down", "parameters": {}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil (both target and destination should be optional)", err)
 	}
 }

@@ -429,3 +429,32 @@ func (c *Client) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
 
 	return nil
 }
+
+// ResetEnvironment calls the middleware's /reset_environment Trigger
+// service, reloading objects/obstacles from their config files and
+// clearing held-object tracking - undoing any pose drift from earlier
+// pickup/dropoff/push/throw actions, without a full middleware restart.
+// Returns the middleware's own message on success.
+func (c *Client) ResetEnvironment(ctx context.Context) (string, error) {
+	values, err := c.CallService(ctx, "/reset_environment", map[string]any{})
+	if err != nil {
+		return "", fmt.Errorf("call /reset_environment: %w", err)
+	}
+
+	var resp struct {
+		Success bool   `json:"success"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(values, &resp); err != nil {
+		return "", fmt.Errorf("decode /reset_environment response: %w", err)
+	}
+
+	if !resp.Success {
+		if resp.Message != "" {
+			return "", fmt.Errorf("environment reset failed: %s", resp.Message)
+		}
+		return "", errors.New("robot failed to reset the environment")
+	}
+
+	return resp.Message, nil
+}

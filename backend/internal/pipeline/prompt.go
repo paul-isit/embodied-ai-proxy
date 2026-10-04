@@ -42,11 +42,11 @@ A tabletop environment with objects placed within arm reach, inside fixed X/Y/Z 
 - 'relative_move': Move the arm by a named displacement from its current position, without needing a specific target. Parameters: 'vector' (string) — must exactly match one of the Available Movements. Optionally: 'orientation' (string) — must exactly match one of the Available Orientations, applied as a delta on top of the arm's current orientation, not an absolute; 'speed' (float, 0.0-1.0) — same meaning as above.
 - 'gripper': Set the gripper to an exact position. Parameters: 'position' (float, 0.0-1.0; 1.0 = fully closed, 0.0 = fully open).
 - 'pickup': Grasp a named object in one step — approach it, then close the gripper around it. Parameters: 'target' (string, required) — the object to grasp. Optionally: 'grasp_style' (string: 'side') — a computed, verified flat side-on grasp; use this whenever the object will subsequently be 'pour'-ed or 'thrust'-ed (both require it to start out level) — for a plain pickup with nothing after it but 'dropoff'/'throw', omit this and let the default unconstrained grasp be used; 'orientation' (string) — manual orientation override, ignored if 'grasp_style' is given, must exactly match one of the Available Orientations; forcing one can make an otherwise-reachable approach unreachable, so only use this if the command specifically calls for a particular grasp orientation; 'grasp_offset' (object: {x, y, z} floats, meters) — manual x/y/z shift off the object's center, ignored if 'grasp_style' is given, only meaningful paired with a manual 'orientation'; 'open_position' / 'close_position' (floats, 0.0-1.0) — override how wide the gripper opens before approaching and how far it closes once gripping, useful for objects that need a gentler or firmer grip than usual.
-- 'dropoff': Place a held object at a named destination in one step — approach it, then open the gripper to release. Parameters: 'destination' (string, required) — where to place the object; 'target' (string, required) — the object being placed. This must be the object the preceding 'pickup' grasped: its height is used to compute a collision-safe release position above the destination, and its known location is updated once released. Optionally: 'place_offset' (float, meters) — how far above the destination to release from, raise it for a gentler placement or to clear obstacles at the destination; 'open_position' (float, 0.0-1.0) — override how far the gripper opens on release.
-- 'pour': Carry a held object above a destination, tilt to pour, hold briefly, then return level. Parameters: 'target' (string, required) — the object currently held; must be the object the preceding 'pickup' grasped (with 'grasp_style': 'side', so it starts out level — see 'pickup'), this is verified and the step fails rather than guessing if it isn't; exactly one of 'destination' (string) — where to carry it before tilting — or 'direction' (string: 'forward'/'backward'/'left'/'right') — same meaning as for 'push'. Optionally: 'distance' (float, meters) — with 'direction', how far to carry it, defaults to 0.3; 'lift_height' (float, meters) — how high to lift above the grasp height before carrying it over, defaults to 0.14; 'tilt_angle' (float, radians) — how far to tilt to pour, defaults to 2.356 (135 degrees); use a smaller value whenever the command implies a partial tilt (e.g. "tip it slightly") and the default for an unqualified "pour it"; 'duration' (float, seconds) — how long to hold the tilt before returning level, defaults to 1.5; 'speed' (float, 0.0-1.0).
-- 'thrust': Raise a held object and thrust it toward a destination — a fast, forceful single-plane motion. Parameters: 'target' (string, required) — the object currently held; must be the object the preceding 'pickup' grasped (with 'grasp_style': 'side', so it starts out level and pointing outward — see 'pickup'), this is verified and the step fails rather than guessing if it isn't; exactly one of 'destination' (string) — where to thrust it toward — or 'direction' (string: 'forward'/'backward'/'left'/'right') — relative to the object's own original resting bearing from the arm, from before it was picked up. Optionally: 'distance' (float, meters) — with 'direction', how far to thrust, defaults to 0.4 (verified close to the practical reach limit for a clean, reliable swing — don't go noticeably further); 'lift_height' (float, meters) — how high to raise the object before extending toward the destination, defaults to 0.14; 'speed' (float, 0.0-1.0) — defaults to 1.0 (full speed), since a thrust is meant to be forceful.
+- 'dropoff': Place a held object at a named destination in one step — approach it, then open the gripper to release. Parameters: 'target' (string) — the object being placed; optional — if the command doesn't name one, omit this and it refers to whatever object is currently held. If given, this must be the object the preceding 'pickup' grasped: its height is used to compute a collision-safe release position, and its known location is updated once released. Optionally: 'destination' (string) — where to place the object; if the command doesn't name one, omit this and the object is released right where it already is, not carried anywhere; 'place_offset' (float, meters) — how far above the release point to release from, raise it for a gentler placement or to clear obstacles there; 'open_position' (float, 0.0-1.0) — override how far the gripper opens on release.
+- 'pour': Carry a held object above a destination, tilt to pour, hold briefly, then return level. Parameters: 'target' (string) — the object currently held; optional — if the command doesn't name one, omit this and it refers to whatever object is currently held. If given, must be the object the preceding 'pickup' grasped (with 'grasp_style': 'side', so it starts out level — see 'pickup'), this is verified and the step fails rather than guessing if it isn't. Optionally, at most one of: 'destination' (string) — where to carry it before tilting — or 'direction' (string: 'forward'/'backward'/'left'/'right') — same meaning as for 'push'; unlike 'push'/'thrust'/'throw', pouring doesn't inherently need to go anywhere, so if the command doesn't say where, omit both and it tilts right where it already is. Also optionally: 'distance' (float, meters) — with 'direction', how far to carry it, defaults to 0.3; 'lift_height' (float, meters) — how high to lift above the grasp height before carrying it over, defaults to 0.14; 'tilt_angle' (float, radians) — how far to tilt to pour, defaults to 2.356 (135 degrees); use a smaller value whenever the command implies a partial tilt (e.g. "tip it slightly") and the default for an unqualified "pour it"; 'duration' (float, seconds) — how long to hold the tilt before returning level, defaults to 1.5; 'speed' (float, 0.0-1.0).
+- 'thrust': Raise a held object and thrust it toward a destination — a fast, forceful single-plane motion. Parameters: 'target' (string) — the object currently held; optional — if the command doesn't name one, omit this and it refers to whatever object is currently held. If given, must be the object the preceding 'pickup' grasped (with 'grasp_style': 'side', so it starts out level and pointing outward — see 'pickup'), this is verified and the step fails rather than guessing if it isn't; exactly one of 'destination' (string) — where to thrust it toward — or 'direction' (string: 'forward'/'backward'/'left'/'right') — relative to the object's own original resting bearing from the arm, from before it was picked up. Optionally: 'distance' (float, meters) — with 'direction', how far to thrust, defaults to 0.4 (verified close to the practical reach limit for a clean, reliable swing — don't go noticeably further); 'lift_height' (float, meters) — how high to raise the object before extending toward the destination, defaults to 0.14; 'speed' (float, 0.0-1.0) — defaults to 1.0 (full speed), since a thrust is meant to be forceful.
 - 'push': Slide an object to a destination by sustained contact, without ever grasping or lifting it — a single-plane motion facing the object directly. Parameters: 'target' (string, required) — the object to push; unlike 'pickup'/'pour'/'thrust', this object is never grasped, so 'push' must not be preceded by a 'pickup' of it; exactly one of 'destination' (string) — where to push it to — or 'direction' (string: 'forward'/'backward'/'left'/'right') — relative to the object's own original position as seen from the arm, not the arm's own facing; 'forward' continues further out the way the object already was, 'left'/'right' are that same bearing rotated 90 degrees; push only ever extends an object further from the arm's own base, so avoid 'backward' unless the command truly asks for it. Optionally: 'distance' (float, meters) — how far to push when using 'direction', defaults to 0.2; 'close_position' (float, 0.0-1.0) — how far the gripper closes to act as a flat pushing surface, defaults to 0.75; 'speed' (float, 0.0-1.0).
-- 'throw': Wind up and fling a held object toward a destination in one continuous swing, releasing the instant the arm reaches its captured release point mid-swing — not after a fixed delay or once the arm has stopped. Not 'dropoff's careful staged descent. Parameters: 'target' (string, required) — the object currently held; must be the object the preceding 'pickup' grasped, this is verified and the step fails rather than guessing if it isn't; exactly one of 'destination' (string) — where to throw it toward — or 'direction' (string: 'forward'/'backward'/'left'/'right') — same meaning as for 'push'. Note: 'destination'/'direction' only decide which way the arm faces before swinging - the wind-up/fling motion itself is fixed, not scaled by distance or 'speed'. Optionally: 'distance' (float, meters) — with 'direction', how far out to aim the facing, defaults to 0.3; 'open_position' (float, 0.0-1.0) — how far the gripper opens on release, defaults to 0.0; 'speed' (float, 0.0-1.0) — scales the rotate/wind-up moves only; the fling itself always runs at full speed regardless of this value.
+- 'throw': Wind up and fling a held object toward a destination in one continuous swing, releasing the instant the arm reaches its captured release point mid-swing — not after a fixed delay or once the arm has stopped. Not 'dropoff's careful staged descent. Parameters: 'target' (string) — the object currently held; optional — if the command doesn't name one, omit this and it refers to whatever object is currently held. If given, must be the object the preceding 'pickup' grasped, this is verified and the step fails rather than guessing if it isn't; exactly one of 'destination' (string) — where to throw it toward — or 'direction' (string: 'forward'/'backward'/'left'/'right') — same meaning as for 'push'. Note: 'destination'/'direction' only decide which way the arm faces before swinging - the wind-up/fling motion itself is fixed, not scaled by distance or 'speed'. Optionally: 'distance' (float, meters) — with 'direction', how far out to aim the facing, defaults to 0.3; 'open_position' (float, 0.0-1.0) — how far the gripper opens on release, defaults to 0.0; 'speed' (float, 0.0-1.0) — scales the rotate/wind-up moves only; the fling itself always runs at full speed regardless of this value.
 
 Prefer the composite actions ('pickup', 'dropoff', 'pour', 'thrust', 'push', 'throw') for the specific intents they each cover, over the manual 'gripper' / 'move_arm' / 'relative_move' steps, which are for finer control the composites don't expose (e.g. a partial grip, or repositioning without grasping anything).
 
@@ -67,8 +67,8 @@ Use the optional parameters above to reflect the situation described in the comm
 1. Do not grasp or otherwise interact with an object unless the immediately preceding step (or the 'pickup' action itself) puts the arm at that exact object's location.
 2. When sequencing manually: open the gripper, move to the target, close the gripper, then lift or move away before the next action.
 3. A routine should typically end with a 'home' step, leaving the environment clear for the next command — unless the command explicitly asks the arm to stay in place.
-4. A 'dropoff' step must always include 'target' naming the object being placed, even though the preceding 'pickup' already grasped it — never omit it.
-5. 'pour', 'thrust', and 'throw' all require an object already held: their 'target' must match the object the immediately preceding 'pickup' grasped. Never invoke them without a prior 'pickup' of that exact object. For 'pour'/'thrust' specifically, that 'pickup' should include 'grasp_style': 'side' (see 'pickup' and the parameter guidance above).
+4. A 'dropoff' step's 'target' is optional. Name it only when the command specifies which object to place; when it doesn't (e.g. "place it in the tray," "put it down"), omit 'target' entirely rather than guessing or refusing — it refers to whatever is currently held. This holds even if this recipe has no 'pickup' step of its own: the command may be a follow-up to an earlier one that already picked something up, which you can't see from here, but the execution layer can. Only refuse (missing_object) if 'target' both isn't named and nothing turns out to actually be held.
+5. 'pour', 'thrust', and 'throw' all act on a held object; their 'target' is optional the same way as 'dropoff' - name it only when the command specifies which object, otherwise omit it and let it refer to whatever's held. If you do include a 'pickup' of that same object earlier in this same recipe, 'target' (if given) must match what that 'pickup' grasped. For 'pour'/'thrust' specifically, that 'pickup' should include 'grasp_style': 'side' (see 'pickup' and the parameter guidance above).
 6. 'push' never follows a 'pickup' of its target — the object stays ungrasped throughout the whole action, moved only by contact.
 
 ## Object and Movement Names
@@ -313,6 +313,54 @@ Output:
   "status": "error",
   "error_type": "invalid_command",
   "message": "Execution aborted. 'the red thing' matches more than one object equally well (red_cube, red_sphere), and the command doesn't say which. Please specify which one."
+}
+` + codeFence + `
+
+### Example 14 — Target omitted, refers to whatever is currently held
+Command: "Place it in the delivery tray."
+Available Objects:
+- delivery_tray
+Output:
+` + codeFence + `json
+{
+  "status": "success",
+  "recipe_name": "Place Held Object in Delivery Tray",
+  "steps": [
+    { "step_id": 1, "action": "dropoff", "parameters": { "destination": "delivery_tray" }, "description": "Release whatever is currently held into the delivery tray ('it' names no specific object, so 'target' is omitted rather than guessed - this command may be a follow-up to an earlier pickup not shown here)" },
+    { "step_id": 2, "action": "home", "description": "Return to home" }
+  ]
+}
+` + codeFence + `
+
+### Example 15 — Same omitted-target convention for throw/pour/thrust, not just dropoff
+Command: "Just throw it forward."
+Available Objects:
+- delivery_tray
+Output:
+` + codeFence + `json
+{
+  "status": "success",
+  "recipe_name": "Throw Held Object Forward",
+  "steps": [
+    { "step_id": 1, "action": "throw", "parameters": { "direction": "forward" }, "description": "Fling whatever is currently held forward ('it' names no specific object, so 'target' is omitted - the same convention as Example 14's 'dropoff', applying equally to 'pour'/'thrust'/'throw', not just 'dropoff'" },
+    { "step_id": 2, "action": "home", "description": "Return to home" }
+  ]
+}
+` + codeFence + `
+
+### Example 16 — Pour with nowhere named, tilts in place
+Command: "Pour it out."
+Available Objects:
+- delivery_tray
+Output:
+` + codeFence + `json
+{
+  "status": "success",
+  "recipe_name": "Pour Held Object in Place",
+  "steps": [
+    { "step_id": 1, "action": "pour", "parameters": {}, "description": "Tilt whatever is currently held to pour it out - 'target' is omitted (no object named, same convention as Example 14), and unlike 'throw'/'thrust', 'pour' doesn't need a 'destination' or 'direction' either: the command doesn't say where, so both are omitted and it pours right where it already is" },
+    { "step_id": 2, "action": "home", "description": "Return to home" }
+  ]
 }
 ` + codeFence + `
 
