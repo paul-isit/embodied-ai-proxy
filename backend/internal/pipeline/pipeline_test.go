@@ -489,6 +489,41 @@ func TestPipeline_HandlePrompt_ExecutionFailure_BroadcastsErrorWithoutActionReci
 	}
 }
 
+// deadlineROSBridge records how long ExecuteRecipe was given
+type deadlineROSBridge struct {
+	failingROSBridge
+	timeout time.Duration
+}
+
+func (d *deadlineROSBridge) ExecuteRecipe(ctx context.Context, recipe []byte) error {
+	if deadline, ok := ctx.Deadline(); ok {
+		d.timeout = time.Until(deadline)
+	}
+	return nil
+}
+
+func TestPipeline_HandlePrompt_UsesConfiguredExecutionTimeout(t *testing.T) {
+	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
+	defer llmProxy.Close()
+
+	for _, tc := range []struct {
+		configured, want time.Duration
+	}{
+		{0, defaultExecutionTimeout},
+		{7 * time.Second, 7 * time.Second},
+	} {
+		bridge := &deadlineROSBridge{failingROSBridge: failingROSBridge{connected: true}}
+		p := New(websocket.NewHub(), bridge, testValidator(t), llmProxy.URL, testSystemPrompt, []byte(`{}`))
+		p.ExecutionTimeout = tc.configured
+
+		p.HandlePrompt(context.Background(), "go home")
+
+		if bridge.timeout > tc.want || bridge.timeout < tc.want-time.Second {
+			t.Errorf("ExecutionTimeout %v: recipe got %v to run, want about %v", tc.configured, bridge.timeout, tc.want)
+		}
+	}
+}
+
 type failingROSBridge struct {
 	connected bool
 }

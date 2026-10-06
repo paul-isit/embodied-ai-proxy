@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // jsonSchemaFileName and systemPromptFileName are the two backend-specific
@@ -84,6 +85,7 @@ func (server *AppServer) initialize() error {
 	server.rb = rb
 
 	p := pipeline.New(hub, rb, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
+	p.ExecutionTimeout = time.Duration(appConfig.Server.ExecutionTimeoutSeconds) * time.Second
 	hub.SetPromptHandler(p)
 
 	log.Printf("[Server] Registering route: GET /ws/client")

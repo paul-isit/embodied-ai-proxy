@@ -14,6 +14,8 @@ type ServerConfig struct {
 	Port         int    `json:"port"`
 	ProxyURL     string `json:"proxy_url"`
 	RosbridgeURL string `json:"rosbridge_url"`
+	// How long to wait for the robot to finish a recipe before giving up
+	ExecutionTimeoutSeconds int `json:"execution_timeout_seconds"`
 }
 
 // LLMConfig holds settings for the upstream LLM provider the proxy talks to.
@@ -44,9 +46,10 @@ type AppConfig struct {
 func defaultAppConfig() AppConfig {
 	return AppConfig{
 		Server: ServerConfig{
-			Port:         DefaultServerPort,
-			ProxyURL:     DefaultProxyURL,
-			RosbridgeURL: DefaultRosbridgeURL,
+			Port:                    DefaultServerPort,
+			ProxyURL:                DefaultProxyURL,
+			RosbridgeURL:            DefaultRosbridgeURL,
+			ExecutionTimeoutSeconds: DefaultExecutionTimeoutSeconds,
 		},
 		Proxy: ProxyConfig{
 			Port: DefaultProxyPort,
