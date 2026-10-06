@@ -299,33 +299,20 @@ func TestValidator_ThrowRejectsOldWindUpFields(t *testing.T) {
 	}
 }
 
-func TestValidator_PickupAcceptsGraspStyleSide(t *testing.T) {
+func TestValidator_PickupAcceptsEveryGraspStyle(t *testing.T) {
 	v := newTestValidator(t)
 
-	raw := []byte(`{
-		"status": "success",
-		"recipe_name": "Pickup",
-		"steps": [
-			{"step_id": 1, "action": "pickup", "description": "pick it up", "parameters": {"target": "red_cube", "grasp_style": "side"}}
-		]
-	}`)
-	if _, err := v.Validate(raw); err != nil {
-		t.Errorf("Validate() error = %v, want nil", err)
-	}
-}
-
-func TestValidator_PickupAcceptsManualOrientationAndGraspOffset(t *testing.T) {
-	v := newTestValidator(t)
-
-	raw := []byte(`{
-		"status": "success",
-		"recipe_name": "Pickup",
-		"steps": [
-			{"step_id": 1, "action": "pickup", "description": "pick it up", "parameters": {"target": "red_cube", "orientation": "facing_forward", "grasp_offset": {"x": -0.04, "y": 0.0, "z": 0.01}}}
-		]
-	}`)
-	if _, err := v.Validate(raw); err != nil {
-		t.Errorf("Validate() error = %v, want nil", err)
+	for _, style := range []string{"auto", "top", "side"} {
+		raw := []byte(`{
+			"status": "success",
+			"recipe_name": "Pickup",
+			"steps": [
+				{"step_id": 1, "action": "pickup", "description": "pick it up", "parameters": {"target": "red_cube", "grasp_style": "` + style + `"}}
+			]
+		}`)
+		if _, err := v.Validate(raw); err != nil {
+			t.Errorf("Validate() error = %v, want nil for grasp_style %q", err, style)
+		}
 	}
 }
 
@@ -336,11 +323,78 @@ func TestValidator_PickupRejectsUnknownGraspStyle(t *testing.T) {
 		"status": "success",
 		"recipe_name": "Pickup",
 		"steps": [
-			{"step_id": 1, "action": "pickup", "description": "pick it up", "parameters": {"target": "red_cube", "grasp_style": "top"}}
+			{"step_id": 1, "action": "pickup", "description": "pick it up", "parameters": {"target": "red_cube", "grasp_style": "underhand"}}
 		]
 	}`)
 	if _, err := v.Validate(raw); err == nil {
 		t.Error("Validate() error = nil, want error for an unknown grasp_style")
+	}
+}
+
+func TestValidator_PickupRejectsRemovedGraspParams(t *testing.T) {
+	v := newTestValidator(t)
+
+	for _, param := range []string{
+		`"orientation": "facing_forward"`,
+		`"grasp_offset": {"x": -0.04, "y": 0.0, "z": 0.01}`,
+		`"open_position": 0.0`,
+		`"close_position": 0.8`,
+	} {
+		raw := []byte(`{
+			"status": "success",
+			"recipe_name": "Pickup",
+			"steps": [
+				{"step_id": 1, "action": "pickup", "description": "pick it up", "parameters": {"target": "red_cube", ` + param + `}}
+			]
+		}`)
+		if _, err := v.Validate(raw); err == nil {
+			t.Errorf("Validate() error = nil, want error for removed pickup parameter %s", param)
+		}
+	}
+}
+
+func TestValidator_DropoffAcceptsDirectionAndDistance(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Dropoff",
+		"steps": [
+			{"step_id": 1, "action": "dropoff", "description": "put it down", "parameters": {"destination": "delivery_tray", "direction": "left", "distance": 0.05}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidator_DropoffRejectsDirectionWithoutDistance(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Dropoff",
+		"steps": [
+			{"step_id": 1, "action": "dropoff", "description": "put it down", "parameters": {"destination": "delivery_tray", "direction": "left"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err == nil {
+		t.Error("Validate() error = nil, want error for 'direction' without 'distance'")
+	}
+}
+
+func TestValidator_DropoffRejectsOpenPosition(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Dropoff",
+		"steps": [
+			{"step_id": 1, "action": "dropoff", "description": "put it down", "parameters": {"destination": "delivery_tray", "open_position": 0.0}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err == nil {
+		t.Error("Validate() error = nil, want error for dropoff's removed open_position")
 	}
 }
 
