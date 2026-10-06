@@ -78,3 +78,22 @@ func TestResetEnvironmentSuccess(t *testing.T) {
 		t.Errorf("expected a non-empty message")
 	}
 }
+
+func TestScanSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/scan" || r.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ScanResult{Success: true, Added: []string{"green_cup"}, Removed: []string{"red_bottle"}, Unchanged: 2})
+	}))
+	defer server.Close()
+
+	result, err := NewAPIClient(server.URL).Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+	if !result.Success || len(result.Added) != 1 || len(result.Removed) != 1 || result.Unchanged != 2 {
+		t.Errorf("unexpected result: %+v", result)
+	}
+}

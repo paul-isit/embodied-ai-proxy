@@ -156,6 +156,7 @@ func helpText(verbosity int) string {
 		"    /sidebar         Toggle telemetry sidebar",
 		"    /save            Save session to a text file",
 		"    /reset-env       Reset environment objects/obstacles to their configured defaults",
+		"    /scan            Detect objects with the camera and update the object list",
 		"",
 		"  Session",
 		"    Enter          Submit prompt",

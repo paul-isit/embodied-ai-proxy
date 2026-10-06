@@ -13,6 +13,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// ROS topic and service names used on the middleware
+const (
+	statusTopic               = "/system/status"
+	getRobotParametersService = "/get_robot_parameters"
+	executeRecipeService      = "/execute_recipe"
+	resetEnvironmentService   = "/reset_environment"
+	snapshotService           = "/vision/snapshot"
+)
+
 // BridgeObserver receives state transitions and telemetry from the rosbridge client.
 type BridgeObserver interface {
 	OnBridgeConnectionChange(connected bool)
@@ -232,7 +241,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	// Subscribe to telemetry
 	_ = c.sendJSON(map[string]string{
 		"op":    "subscribe",
-		"topic": "/system/status",
+		"topic": statusTopic,
 		"type":  "kinova_interfaces/msg/SystemSummary",
 	})
 
@@ -280,7 +289,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 			}
 
 		case "publish":
-			if msg.Topic == "/system/status" && c.observer != nil {
+			if msg.Topic == statusTopic && c.observer != nil {
 				c.observer.OnTelemetry(msg.Msg)
 			}
 		}
@@ -380,14 +389,14 @@ type getRobotParametersResponse struct {
 // Only names reach the LLM. The middleware's /get_scene_objects has more per object
 // (description, pose, size, and which one is held) if the prompt ever needs it.
 func (c *Client) FetchEnvironmentParams(ctx context.Context) (EnvironmentParams, error) {
-	values, err := c.CallService(ctx, "/get_robot_parameters", map[string]any{})
+	values, err := c.CallService(ctx, getRobotParametersService, map[string]any{})
 	if err != nil {
 		return EnvironmentParams{}, err
 	}
 
 	var resp getRobotParametersResponse
 	if err := json.Unmarshal(values, &resp); err != nil {
-		return EnvironmentParams{}, fmt.Errorf("decode /get_robot_parameters response: %w", err)
+		return EnvironmentParams{}, fmt.Errorf("decode %s response: %w", getRobotParametersService, err)
 	}
 
 	return EnvironmentParams{
@@ -410,9 +419,9 @@ func (c *Client) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
 		"recipe_json": string(recipeJSON),
 	}
 
-	values, err := c.CallService(ctx, "/execute_recipe", args)
+	values, err := c.CallService(ctx, executeRecipeService, args)
 	if err != nil {
-		return fmt.Errorf("call /execute_recipe: %w", err)
+		return fmt.Errorf("call %s: %w", executeRecipeService, err)
 	}
 
 	var resp struct {
@@ -420,7 +429,7 @@ func (c *Client) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
 		Message string `json:"message,omitempty"`
 	}
 	if err := json.Unmarshal(values, &resp); err != nil {
-		return fmt.Errorf("decode /execute_recipe response: %w", err)
+		return fmt.Errorf("decode %s response: %w", executeRecipeService, err)
 	}
 
 	if !resp.Success {
@@ -439,9 +448,9 @@ func (c *Client) ExecuteRecipe(ctx context.Context, recipeJSON []byte) error {
 // pickup/dropoff/push/throw actions, without a full middleware restart.
 // Returns the middleware's own message on success.
 func (c *Client) ResetEnvironment(ctx context.Context) (string, error) {
-	values, err := c.CallService(ctx, "/reset_environment", map[string]any{})
+	values, err := c.CallService(ctx, resetEnvironmentService, map[string]any{})
 	if err != nil {
-		return "", fmt.Errorf("call /reset_environment: %w", err)
+		return "", fmt.Errorf("call %s: %w", resetEnvironmentService, err)
 	}
 
 	var resp struct {
@@ -449,7 +458,7 @@ func (c *Client) ResetEnvironment(ctx context.Context) (string, error) {
 		Message string `json:"message,omitempty"`
 	}
 	if err := json.Unmarshal(values, &resp); err != nil {
-		return "", fmt.Errorf("decode /reset_environment response: %w", err)
+		return "", fmt.Errorf("decode %s response: %w", resetEnvironmentService, err)
 	}
 
 	if !resp.Success {
@@ -459,5 +468,28 @@ func (c *Client) ResetEnvironment(ctx context.Context) (string, error) {
 		return "", errors.New("robot failed to reset the environment")
 	}
 
+	return resp.Message, nil
+}
+
+// Snapshot calls the vision node's /vision/snapshot, which looks at the table with the camera
+// and updates the middleware's objects. Detected objects that aren't seen any more are removed.
+// Returns the middleware's message, e.g. "Scene updated: 2 added, 1 updated, 0 removed, 5 total".
+func (c *Client) Snapshot(ctx context.Context) (string, error) {
+	// num_frames is left out, so it's 0 and the vision node uses its own default
+	values, err := c.CallService(ctx, snapshotService, map[string]any{"remove_missing": true})
+	if err != nil {
+		return "", fmt.Errorf("call %s (is the vision node running?): %w", snapshotService, err)
+	}
+
+	var resp struct {
+		Success bool   `json:"success"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(values, &resp); err != nil {
+		return "", fmt.Errorf("decode %s response: %w", snapshotService, err)
+	}
+	if !resp.Success {
+		return "", fmt.Errorf("scan failed: %s", resp.Message)
+	}
 	return resp.Message, nil
 }

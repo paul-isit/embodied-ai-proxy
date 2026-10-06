@@ -137,6 +137,32 @@ func resetEnvironment(api *client.APIClient) tea.Cmd {
 	}
 }
 
+// scanTimeout is a little longer than the backend's own 30s scan timeout,
+// so the backend's error reaches the user instead of a client timeout
+const scanTimeout = 35 * time.Second
+
+func scan(api *client.APIClient) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
+		defer cancel()
+		result, err := api.Scan(ctx)
+		return ScanMsg{Result: result, Err: err}
+	}
+}
+
+// formatScan summarises a scan, e.g. "Scan: 2 added (green_cup, red_object), 1 removed (red_bottle), 1 unchanged"
+func formatScan(r *client.ScanResult) string {
+	parts := []string{}
+	if len(r.Added) > 0 {
+		parts = append(parts, fmt.Sprintf("%d added (%s)", len(r.Added), strings.Join(r.Added, ", ")))
+	}
+	if len(r.Removed) > 0 {
+		parts = append(parts, fmt.Sprintf("%d removed (%s)", len(r.Removed), strings.Join(r.Removed, ", ")))
+	}
+	parts = append(parts, fmt.Sprintf("%d unchanged", r.Unchanged))
+	return "Scan: " + strings.Join(parts, ", ")
+}
+
 // Init initialises the event loop and runs the startup commands
 func (m Model) Init() tea.Cmd {
 	m.ws.Start()
@@ -205,6 +231,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.appendEntry(errTag, "environment reset failed: "+msg.Result.Message)
 		} else if msg.Result != nil {
 			m = m.appendEntry(sysTag, msg.Result.Message)
+		}
+		return m, nil
+
+	case ScanMsg:
+		if msg.Err != nil {
+			m = m.appendEntry(errTag, "scan failed: "+msg.Err.Error())
+		} else if msg.Result != nil && !msg.Result.Success {
+			m = m.appendEntry(errTag, "scan failed: "+msg.Result.Message)
+		} else if msg.Result != nil {
+			m = m.appendEntry(sysTag, formatScan(msg.Result))
 		}
 		return m, nil
 
@@ -353,6 +389,9 @@ func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
 	case "reset-env":
 		m = m.appendEntry(sysTag, "Resetting environment...")
 		return m, resetEnvironment(m.api)
+	case "scan":
+		m = m.appendEntry(sysTag, "Scanning the table with the camera...")
+		return m, scan(m.api)
 	case "sidebar":
 		m.showSidebar = !m.showSidebar
 

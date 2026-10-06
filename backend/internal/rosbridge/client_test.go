@@ -361,3 +361,74 @@ func TestClient_ResetEnvironment_Failure(t *testing.T) {
 		t.Fatalf("ResetEnvironment() expected planning scene error, got = %v", err)
 	}
 }
+
+// snapshotServer answers /vision/snapshot with the given result and values, and records the request args
+func snapshotServer(t *testing.T, result bool, values any, gotArgs *map[string]any) *Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		for {
+			var msg map[string]any
+			if err := ws.ReadJSON(&msg); err != nil {
+				return
+			}
+			if msg["op"] == "call_service" && msg["service"] == snapshotService {
+				*gotArgs, _ = msg["args"].(map[string]any)
+				ws.WriteJSON(map[string]any{
+					"op": "service_response", "id": msg["id"], "service": snapshotService,
+					"result": result, "values": values,
+				})
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	client.Start(ctx)
+	for i := 0; i < 20 && !client.IsConnected(); i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	return client
+}
+
+func TestClient_Snapshot_Success(t *testing.T) {
+	var args map[string]any
+	client := snapshotServer(t, true, map[string]any{"success": true, "message": "Scene updated: 2 added"}, &args)
+
+	message, err := client.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if message != "Scene updated: 2 added" {
+		t.Errorf("Snapshot() message = %q", message)
+	}
+	if args["remove_missing"] != true {
+		t.Errorf("Snapshot() sent args %v, want remove_missing true", args)
+	}
+}
+
+func TestClient_Snapshot_Failure(t *testing.T) {
+	var args map[string]any
+	client := snapshotServer(t, true, map[string]any{"success": false, "message": "Snapshot failed: no depth frames"}, &args)
+
+	_, err := client.Snapshot(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "no depth frames") {
+		t.Fatalf("Snapshot() error = %v, want the vision node's message", err)
+	}
+}
+
+func TestClient_Snapshot_VisionNodeNotRunning(t *testing.T) {
+	var args map[string]any
+	client := snapshotServer(t, false, "Service /vision/snapshot does not exist", &args)
+
+	_, err := client.Snapshot(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "is the vision node running?") {
+		t.Fatalf("Snapshot() error = %v, want a hint that the vision node isn't running", err)
+	}
+}
