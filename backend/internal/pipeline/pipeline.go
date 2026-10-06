@@ -37,6 +37,16 @@ type Pipeline struct {
 	systemPrompt string
 	schemaBlock  string
 	httpClient   *http.Client
+
+	// How long to wait for the robot to run a recipe. Zero means defaultExecutionTimeout.
+	ExecutionTimeout time.Duration
+}
+
+func (p *Pipeline) executionTimeout() time.Duration {
+	if p.ExecutionTimeout > 0 {
+		return p.ExecutionTimeout
+	}
+	return defaultExecutionTimeout
 }
 
 // New creates a new Pipeline coordinator.
