@@ -7,7 +7,10 @@ import (
 	"embodied-ai-proxy/backend/internal/websocket"
 	sharedconfig "embodied-ai-proxy/shared/config"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"slices"
+	"time"
 )
 
 type infoResponse struct {
@@ -69,6 +72,79 @@ func ResetHandler(rb resetter) http.HandlerFunc {
 		}
 		json.NewEncoder(w).Encode(resetResponse{Success: true, Message: message})
 	}
+}
+
+// scanTimeout covers the camera snapshot plus reading the object list before and after
+const scanTimeout = 30 * time.Second
+
+// scanner is the subset of rosbridge.Client ScanHandler needs, so tests can fake it.
+type scanner interface {
+	RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error)
+	Snapshot(ctx context.Context) (string, error)
+}
+
+type scanResponse struct {
+	Success   bool     `json:"success"`
+	Message   string   `json:"message"`
+	Added     []string `json:"added"`
+	Removed   []string `json:"removed"`
+	Unchanged int      `json:"unchanged"`
+}
+
+// ScanHandler exposes POST /api/scan for the TUI's /scan command: takes a camera snapshot
+// and reports which objects were added or removed.
+func ScanHandler(rb scanner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(scanResponse{Message: "method not allowed"})
+			return
+		}
+		fail := func(err error) { json.NewEncoder(w).Encode(scanResponse{Message: err.Error()}) }
+
+		ctx, cancel := context.WithTimeout(r.Context(), scanTimeout)
+		defer cancel()
+
+		// Added/removed come from comparing object names before and after. Having Snapshot.srv
+		// return the added/updated/removed lists it already gets from /update_scene_objects
+		// would be exact, and would also say which objects moved.
+		before, err := rb.RefreshEnvironmentParams(ctx)
+		if err != nil {
+			fail(fmt.Errorf("couldn't read the objects before scanning: %w", err))
+			return
+		}
+		message, err := rb.Snapshot(ctx)
+		if err != nil {
+			fail(err)
+			return
+		}
+		after, err := rb.RefreshEnvironmentParams(ctx)
+		if err != nil {
+			fail(fmt.Errorf("scanned, but couldn't read the objects after: %w", err))
+			return
+		}
+
+		added, removed := missingFrom(after.Objects, before.Objects), missingFrom(before.Objects, after.Objects)
+		json.NewEncoder(w).Encode(scanResponse{
+			Success:   true,
+			Message:   message,
+			Added:     added,
+			Removed:   removed,
+			Unchanged: len(after.Objects) - len(added),
+		})
+	}
+}
+
+// missingFrom returns the names in a that aren't in b
+func missingFrom(a, b []string) []string {
+	out := []string{}
+	for _, name := range a {
+		if !slices.Contains(b, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 type promptRequestPayload struct {

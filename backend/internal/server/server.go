@@ -96,6 +96,8 @@ func (server *AppServer) initialize() error {
 	server.mux.HandleFunc("/api/info", api.InfoHandler(appConfig, hub, p))
 	log.Printf("[Server] Registering route: POST /api/reset")
 	server.mux.HandleFunc("/api/reset", api.ResetHandler(rb))
+	log.Printf("[Server] Registering route: POST /api/scan")
+	server.mux.HandleFunc("/api/scan", api.ScanHandler(rb))
 
 	return nil
 }

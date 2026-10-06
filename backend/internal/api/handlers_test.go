@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embodied-ai-proxy/backend/internal/pipeline"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	sharedconfig "embodied-ai-proxy/shared/config"
@@ -13,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -193,5 +195,70 @@ func TestPromptHandler_InvalidRecipeStillReturns200WithError(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&got)
 	if got.Error == "" {
 		t.Error("expected schema validation error in result")
+	}
+}
+
+type fakeScanner struct {
+	refreshes [][]string // object names returned by each refresh, in order
+	message   string
+	err       error
+}
+
+func (f *fakeScanner) RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error) {
+	objects := f.refreshes[0]
+	f.refreshes = f.refreshes[1:]
+	return rosbridge.EnvironmentParams{Objects: objects}, nil
+}
+
+func (f *fakeScanner) Snapshot(ctx context.Context) (string, error) {
+	return f.message, f.err
+}
+
+func scan(t *testing.T, rb scanner) scanResponse {
+	t.Helper()
+	w := httptest.NewRecorder()
+	ScanHandler(rb)(w, httptest.NewRequest(http.MethodPost, "/api/scan", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var got scanResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return got
+}
+
+func TestScanHandler_ReportsAddedAndRemoved(t *testing.T) {
+	rb := &fakeScanner{
+		refreshes: [][]string{{"blue_cube", "red_bottle"}, {"blue_cube", "green_cup", "red_object"}},
+		message:   "Scene updated: 2 added, 1 updated, 1 removed, 3 total",
+	}
+
+	got := scan(t, rb)
+
+	if !got.Success || got.Message != rb.message {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+	if !slices.Equal(got.Added, []string{"green_cup", "red_object"}) || !slices.Equal(got.Removed, []string{"red_bottle"}) || got.Unchanged != 1 {
+		t.Errorf("added %v, removed %v, unchanged %d; want [green_cup red_object], [red_bottle], 1", got.Added, got.Removed, got.Unchanged)
+	}
+}
+
+func TestScanHandler_SnapshotFailure(t *testing.T) {
+	rb := &fakeScanner{refreshes: [][]string{{"blue_cube"}}, err: errors.New("call /vision/snapshot (is the vision node running?): service does not exist")}
+
+	got := scan(t, rb)
+
+	if got.Success || got.Message != rb.err.Error() {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestScanHandler_WrongMethod(t *testing.T) {
+	w := httptest.NewRecorder()
+	ScanHandler(&fakeScanner{})(w, httptest.NewRequest(http.MethodGet, "/api/scan", nil))
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", w.Code)
 	}
 }
