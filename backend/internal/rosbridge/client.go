@@ -376,6 +376,9 @@ type getRobotParametersResponse struct {
 // FetchEnvironmentParams queries the /get_robot_parameters ROS service for the
 // known object names, named relative movements, named orientation presets,
 // and the table's footprint (if configured).
+//
+// Only names reach the LLM. The middleware's /get_scene_objects has more per object
+// (description, pose, size, and which one is held) if the prompt ever needs it.
 func (c *Client) FetchEnvironmentParams(ctx context.Context) (EnvironmentParams, error) {
 	values, err := c.CallService(ctx, "/get_robot_parameters", map[string]any{})
 	if err != nil {
