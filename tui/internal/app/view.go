@@ -156,6 +156,7 @@ func helpText(verbosity int) string {
 		"    /sidebar         Toggle telemetry sidebar",
 		"    /save            Save session to a text file",
 		"    /reset-env       Reset environment objects/obstacles to their configured defaults",
+		"    /copy            Copy the latest prompt and response to the clipboard",
 		"",
 		"  Session",
 		"    Enter          Submit prompt",
