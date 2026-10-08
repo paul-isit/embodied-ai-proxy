@@ -34,12 +34,15 @@ type nameField struct {
 // treat this differently from an LLM-authored refusal.
 //
 // doc is expected to have already passed schema validation as a "success"
-// recipe - the schema guarantees 'steps' is an array, every step has a
-// 'parameters' object, and target/destination/vector/orientation are each
-// either absent (legitimately optional) or a non-empty string. The checks
-// below enforce that expectation explicitly (returning an error rather than
-// silently skipping) so a violation - e.g. a future caller passing in an
-// unvalidated doc - fails loudly instead of quietly resolving nothing.
+// recipe - the schema guarantees 'steps' is an array and
+// target/destination/vector/orientation are each either absent (legitimately
+// optional) or a non-empty string. 'parameters' itself is only required for
+// most actions - 'home' has nothing but an optional 'speed', so the schema
+// lets it omit 'parameters' entirely, and that must still be treated as "no
+// names to resolve here", not a malformed step. The checks below enforce the
+// rest of that expectation explicitly (returning an error rather than
+// silently skipping) so a genuine violation - e.g. a future caller passing in
+// an unvalidated doc - fails loudly instead of quietly resolving nothing.
 func resolveRecipeNames(doc any, environment rosbridge.EnvironmentParams) (any, []byte, error) {
 	root, ok := doc.(map[string]any)
 	if !ok {
@@ -55,9 +58,13 @@ func resolveRecipeNames(doc any, environment rosbridge.EnvironmentParams) (any, 
 		if !ok {
 			return doc, nil, fmt.Errorf("step %d is not a JSON object (expected a schema-validated recipe)", i+1)
 		}
-		params, ok := step["parameters"].(map[string]any)
+		rawParams, present := step["parameters"]
+		if !present {
+			continue // legitimately optional for some actions, e.g. a bare 'home' with no 'speed'
+		}
+		params, ok := rawParams.(map[string]any)
 		if !ok {
-			return doc, nil, fmt.Errorf("step %d 'parameters' is missing or not an object (expected a schema-validated recipe)", i+1)
+			return doc, nil, fmt.Errorf("step %d 'parameters' is not an object (expected a schema-validated recipe)", i+1)
 		}
 
 		for _, field := range []nameField{
