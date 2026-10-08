@@ -11,16 +11,23 @@ import (
 	"net/http"
 )
 
+// ApplicationArgs configures the LLM proxy server at startup: where to read
+// its config from, and which port to listen on.
 type ApplicationArgs struct {
 	DataDir  string
 	HTTPPort int
 }
 
+// AppServer is the LLM proxy's HTTP server: owns the route mux that exposes
+// POST /generate.
 type AppServer struct {
 	args ApplicationArgs
 	mux  *http.ServeMux
 }
 
+// New builds an AppServer from args, loading its config and initialising the
+// provider router. The server is not listening yet, call Start to actually
+// run it.
 func New(args ApplicationArgs) (*AppServer, error) {
 	server := &AppServer{
 		args: args,
@@ -55,6 +62,7 @@ func (server *AppServer) initialize() error {
 	return nil
 }
 
+// Start runs the HTTP server, blocking until ctx is cancelled or the server fails.
 func (server *AppServer) Start(ctx context.Context) error {
 	return httpserver.Run(ctx, "[LLMProxy]", fmt.Sprintf(":%d", server.args.HTTPPort), server.mux)
 }

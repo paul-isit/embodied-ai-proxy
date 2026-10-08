@@ -25,17 +25,24 @@ const (
 	systemPromptFileName = "system_prompt.md"
 )
 
+// ApplicationArgs configures the backend server at startup: where to read
+// its config/schema/prompt files from, and which port to listen on.
 type ApplicationArgs struct {
 	DataDir  string
 	HTTPPort int
 }
 
+// AppServer is the backend HTTP server: owns the route mux and the
+// rosbridge client used to talk to the ROS 2 middleware.
 type AppServer struct {
 	args ApplicationArgs
 	mux  *http.ServeMux
 	rb   *rosbridge.Client
 }
 
+// New builds an AppServer from args, loading its config, JSON schema, and
+// system prompt, and registering its HTTP routes. The server is not
+// listening yet, call Start to actually run it.
 func New(args ApplicationArgs) (*AppServer, error) {
 	server := &AppServer{
 		args: args,
@@ -113,6 +120,8 @@ func (server *AppServer) initialize() error {
 //	return nil
 //}
 
+// Start connects the rosbridge client and runs the HTTP server, blocking
+// until ctx is cancelled or the server fails.
 func (server *AppServer) Start(ctx context.Context) error {
 	server.rb.Start(ctx)
 	return httpserver.Run(ctx, "[Server]", fmt.Sprintf(":%d", server.args.HTTPPort), server.mux)
