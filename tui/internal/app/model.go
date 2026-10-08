@@ -547,6 +547,14 @@ func (m Model) appendHardwareClientLog(status *MiddlewareStatus) Model {
 		}
 		line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), n.StatusMessage)
 		m.hardwareClientLog = append(m.hardwareClientLog, line)
+
+		if m.verbosity >= 3 {
+			tag := execTag
+			if n.State == StateFault {
+				tag = errTag
+			}
+			m = m.appendEntry(tag, fmt.Sprintf("%s (%s)", line, stateLabel(n.State)))
+		}
 		break
 	}
 	return m

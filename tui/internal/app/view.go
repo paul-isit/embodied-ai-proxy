@@ -20,6 +20,7 @@ var (
 	userTag = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BB9AF7")).Render("[USER] ")
 	errTag  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F7768E")).Render("[ERR] ")
 	okTag   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("[OK] ")
+	execTag = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E0AF68")).Render("[EXEC] ")
 
 	nodeReadyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ECE6A"))
 	nodeBusyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68"))
