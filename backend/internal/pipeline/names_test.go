@@ -68,6 +68,30 @@ func TestResolveRecipeNames_OmittedOptionalFieldIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestResolveRecipeNames_OmittedParametersObjectIsNotAnError(t *testing.T) {
+	// 'home' has nothing but an optional 'speed', so the schema doesn't
+	// require 'parameters' at all for it (unlike every other action) - a
+	// bare 'home' step omits 'parameters' entirely. This must be skipped
+	// over, not treated as a malformed step.
+	doc := decodeDoc(t, `{
+		"status": "success",
+		"recipe_name": "Test",
+		"steps": [
+			{"step_id": 1, "action": "home", "description": "Start at home"},
+			{"step_id": 2, "action": "pickup", "description": "d", "parameters": {"target": "blue_cube"}},
+			{"step_id": 3, "action": "home", "description": "Return to home"}
+		]
+	}`)
+
+	resolved, _, err := resolveRecipeNames(doc, testEnvironment())
+	if err != nil {
+		t.Fatalf("resolveRecipeNames() error = %v, want nil", err)
+	}
+	if recipeStatus(resolved) != "success" {
+		t.Errorf("status = %v, want success", recipeStatus(resolved))
+	}
+}
+
 func TestResolveRecipeNames_UnresolvableNameRejectsWithoutError(t *testing.T) {
 	doc := decodeDoc(t, `{
 		"status": "success",
