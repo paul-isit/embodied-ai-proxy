@@ -24,9 +24,3 @@ build/
 install/
 log/
 logs/
-ros2_bridge_ws/build/
-ros2_bridge_ws/install/
-ros2_bridge_ws/log/
-
-# Go SDK/toolchain archives (e.g. accidentally committed during local setup)
-go*.linux-amd64.tar.gz
