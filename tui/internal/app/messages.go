@@ -83,6 +83,11 @@ type NodeStatus struct {
 	LastCommandValid bool   `json:"last_command_valid"`
 }
 
+// CopyResultMsg delivers the result of a clipboard write triggered by /copy.
+type CopyResultMsg struct {
+	Err error
+}
+
 // Node/summary state values, matching ExtendedStatus/SystemSummary's
 // STATE_*/SYSTEM_* constants (READY=0, BUSY=1, FAULT=2).
 const (

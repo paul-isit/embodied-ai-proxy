@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/atotto/clipboard"
 )
 
 // Model is the MVP root Bubble Tea model: it connects to the backend over
@@ -53,6 +54,9 @@ type Model struct {
 
 	llmProvider string
 	llmModel    string
+
+	lastPrompt   string
+	lastResponse string
 
 	hardwareClientLog []string
 }
@@ -126,6 +130,18 @@ func fetchSystemInfo(api *client.APIClient, use string) tea.Cmd {
 		info, err := api.FetchInfo(ctx)
 		return SystemInfoMsg{Info: info, Err: err, Use: use}
 	}
+}
+
+// copyToClipboard writes text to the system clipboard off the Update loop.
+func copyToClipboard(text string) tea.Cmd {
+	return func() tea.Msg {
+		return CopyResultMsg{Err: clipboard.WriteAll(text)}
+	}
+}
+
+// copyText builds the clipboard payload for the latest exchange.
+func (m Model) copyText() string {
+	return "Prompt:\n" + m.lastPrompt + "\n\nResponse:\n" + m.lastResponse
 }
 
 func resetEnvironment(api *client.APIClient) tea.Cmd {
@@ -231,6 +247,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.appendEntry(errTag, "No response received within 60s - you can try again.")
 		}
 		return m, nil
+
+	case CopyResultMsg:
+		if msg.Err != nil {
+			m = m.appendEntry(errTag, "failed to copy to clipboard: "+msg.Err.Error())
+		} else {
+			m = m.appendEntry(sysTag, "Copied latest prompt and response to clipboard")
+		}
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -283,11 +307,17 @@ func (m Model) handleEnvelope(msg client.Envelope) (tea.Model, tea.Cmd) {
 	case client.TypeActionRecipe:
 		latency := time.Since(m.promptSentAt)
 		m.inFlight = false
-		m = m.appendEntry("", formatActionRecipe(msg.Payload, m.verbosity, latency))
+		out := formatActionRecipe(msg.Payload, m.verbosity, latency)
+		m.lastResponse = stripANSI(out)
+		m = m.appendEntry("", out)
 		return m, waitForWSMsg(m.ws.MsgChan())
 
 	case client.TypeLogEvent:
-		m = m.appendEntry("", formatLogEvent(msg.Payload))
+		out := formatLogEvent(msg.Payload)
+		if m.inFlight { 
+			m.lastResponse = stripANSI(out)
+		}
+		m = m.appendEntry("", out)
 		m.inFlight = false
 		return m, waitForWSMsg(m.ws.MsgChan())
 
@@ -325,6 +355,8 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 	}
 
 	m = m.appendEntry(userTag, text)
+	m.lastPrompt = text
+	m.lastResponse = ""
 	m.input.SetValue("")
 	m.inFlight = true
 	m.promptSentAt = time.Now()
@@ -333,8 +365,12 @@ func (m Model) submitPrompt() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
-	name := strings.ToLower(strings.TrimPrefix(text, "/"))
-	name = strings.Fields(name)[0]
+	fields := strings.Fields(strings.TrimPrefix(text, "/"))
+	if len(fields) == 0 {
+		m = m.appendEntry(errTag, "empty command (try /help)")
+		return m, nil
+	}
+	name := strings.ToLower(fields[0])
 
 	switch name {
 	case "help", "h":
@@ -376,6 +412,13 @@ func (m Model) handleSlashCommand(text string) (tea.Model, tea.Cmd) {
 			m = m.appendEntry(sysTag, "Session saved to "+path)
 		}
 		return m, nil
+
+	case "copy":
+		if m.lastPrompt == "" || m.lastResponse == "" {
+			m = m.appendEntry(errTag, "nothing to copy yet - send a prompt and wait for a response")
+			return m, nil
+		}
+		return m, copyToClipboard(m.copyText())
 	default:
 		m = m.appendEntry(errTag, "unknown command: /"+name+" (try /help)")
 		return m, nil
@@ -504,6 +547,14 @@ func (m Model) appendHardwareClientLog(status *MiddlewareStatus) Model {
 		}
 		line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), n.StatusMessage)
 		m.hardwareClientLog = append(m.hardwareClientLog, line)
+
+		if m.verbosity >= 3 {
+			tag := execTag
+			if n.State == StateFault {
+				tag = errTag
+			}
+			m = m.appendEntry(tag, fmt.Sprintf("%s (%s)", line, stateLabel(n.State)))
+		}
 		break
 	}
 	return m
