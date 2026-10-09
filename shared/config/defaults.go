@@ -9,7 +9,7 @@ const (
 	DefaultRosbridgeURL = "ws://localhost:9090"
 
 	// How long the backend waits for the robot to run a whole recipe
-	DefaultExecutionTimeoutSeconds = 120
+	DefaultExecutionTimeoutSeconds = 300
 
 	DefaultLLMProvider       = "ollama"
 	DefaultLLMModel          = "gemma3:1b"

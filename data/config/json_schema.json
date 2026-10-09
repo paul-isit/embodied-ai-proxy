@@ -206,7 +206,7 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Shifts the placing spot from the destination's centre (or from where it was picked up) in this direction. Optional, needs 'distance'. With a destination, the shifted spot must still be on top of it."
+                        "description": "Shifts the placing spot from the destination's centre (or from where it was picked up), relative to that spot's bearing from the arm's base: 'forward' moves it further from the arm, 'backward' closer to the arm, 'left'/'right' sideways. Optional, needs 'distance'. With a destination, the shifted spot must still be on top of it. To place a second object beside one already on the destination, use 'left'/'right' - 'forward'/'backward' lines them up with the arm, and the arm then has to reach over the first object."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
@@ -214,7 +214,8 @@
                       },
                       "place_offset": {
                         "allOf": [{ "$ref": "#/$defs/offset" }],
-                        "description": "How high above the placing spot the arm hovers before lowering the object. The object is always lowered to just above the surface before it's released. Defaults to 0.1 if omitted."
+                        "maximum": 0.12,
+                        "description": "How high above the placing spot the arm hovers before lowering the object, at most 0.12 (higher hovers can be out of reach). The object is always lowered to just above the surface before it's released. Defaults to 0.05 if omitted; leave it out unless the command needs a higher approach."
                       }
                     },
                     "dependentRequired": { "direction": ["distance"] },
