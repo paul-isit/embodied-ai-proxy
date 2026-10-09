@@ -509,3 +509,23 @@ func TestValidator_DropoffAcceptsOmittedTargetAndDestination(t *testing.T) {
 		t.Errorf("Validate() error = %v, want nil (both target and destination should be optional)", err)
 	}
 }
+
+func TestValidator_DropoffCapsPlaceOffset(t *testing.T) {
+	v := newTestValidator(t)
+
+	for _, tc := range []struct {
+		offset string
+		ok     bool
+	}{{"0.12", true}, {"0.15", false}} {
+		raw := []byte(`{
+			"status": "success",
+			"recipe_name": "Dropoff",
+			"steps": [
+				{"step_id": 1, "action": "dropoff", "description": "put it down", "parameters": {"destination": "delivery_tray", "place_offset": ` + tc.offset + `}}
+			]
+		}`)
+		if _, err := v.Validate(raw); (err == nil) != tc.ok {
+			t.Errorf("place_offset %s: Validate() error = %v, want ok=%v", tc.offset, err, tc.ok)
+		}
+	}
+}

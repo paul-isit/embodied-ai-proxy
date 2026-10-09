@@ -12,7 +12,7 @@ import (
 
 const (
 	defaultLLMTimeout         = 60 * time.Second
-	defaultExecutionTimeout   = 120 * time.Second
+	defaultExecutionTimeout   = 300 * time.Second
 	environmentRefreshTimeout = 5 * time.Second
 )
 
