@@ -65,7 +65,7 @@ Use the optional parameters above to reflect the situation described in the comm
 ## Sequencing Rules
 1. Do not grasp or otherwise interact with an object unless the immediately preceding step (or the 'pickup' action itself) puts the arm at that exact object's location.
 2. When sequencing manually: open the gripper, move to the target, close the gripper, then lift or move away before the next action.
-3. A routine should typically end with a 'home' step, leaving the environment clear for the next command — unless the command explicitly asks the arm to stay in place.
+3. A routine should typically end with a 'home' step, leaving the environment clear for the next command — unless the command explicitly asks the arm to stay in place, or the routine ends with an object still held (no 'dropoff' or 'throw' after its 'pickup'). 'home' is a fixed arm pose that tips whatever the gripper holds, so in that case end on the last step and leave the object as it is for the next command.
 4. A 'dropoff' step's 'target' is optional. Name it only when the command specifies which object to place; when it doesn't (e.g. "place it in the tray," "put it down"), omit 'target' entirely rather than guessing or refusing — it refers to whatever is currently held. This holds even if this recipe has no 'pickup' step of its own: the command may be a follow-up to an earlier one that already picked something up, which you can't see from here, but the execution layer can. Only refuse (missing_object) if 'target' both isn't named and nothing turns out to actually be held.
 5. 'pour', 'thrust', and 'throw' all act on a held object; their 'target' is optional the same way as 'dropoff' - name it only when the command specifies which object, otherwise omit it and let it refer to whatever's held. If you do include a 'pickup' of that same object earlier in this same recipe, 'target' (if given) must match what that 'pickup' grasped. For 'pour'/'thrust' specifically, that 'pickup' should include 'grasp_style': 'side' (see 'pickup' and the parameter guidance above).
 6. 'push' never follows a 'pickup' of its target — the object stays ungrasped throughout the whole action, moved only by contact.
@@ -190,8 +190,7 @@ Output:
   "steps": [
     { "step_id": 1, "action": "home", "description": "Start at home" },
     { "step_id": 2, "action": "pickup", "parameters": { "target": "foam_sword", "grasp_style": "side" }, "description": "Grasp the foam sword with a level side grasp, needed before thrusting" },
-    { "step_id": 3, "action": "thrust", "parameters": { "target": "foam_sword", "direction": "forward" }, "description": "Raise the sword and thrust it forward, matching the command's 'stab' - no destination named, so face forward along its own original bearing" },
-    { "step_id": 4, "action": "home", "description": "Return to home" }
+    { "step_id": 3, "action": "thrust", "parameters": { "target": "foam_sword", "direction": "forward" }, "description": "Raise the sword and thrust it forward, matching the command's 'stab' - no destination named, so face forward along its own original bearing. The sword is still held, so no 'home' after it" }
   ]
 }
 ` + codeFence + `
