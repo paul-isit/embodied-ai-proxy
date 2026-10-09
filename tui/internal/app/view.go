@@ -20,6 +20,7 @@ var (
 	userTag = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BB9AF7")).Render("[USER] ")
 	errTag  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F7768E")).Render("[ERR] ")
 	okTag   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("[OK] ")
+	execTag = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E0AF68")).Render("[EXEC] ")
 
 	nodeReadyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ECE6A"))
 	nodeBusyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#E0AF68"))
@@ -156,6 +157,7 @@ func helpText(verbosity int) string {
 		"    /sidebar         Toggle telemetry sidebar",
 		"    /save            Save session to a text file",
 		"    /reset-env       Reset environment objects/obstacles to their configured defaults",
+		"    /copy            Copy the latest prompt and response to the clipboard",
 		"    /scan            Detect objects with the camera and update the object list",
 		"",
 		"  Session",
@@ -258,47 +260,65 @@ func renderSidebar(telemetry *MiddlewareStatus, hwLog []string, width, height in
 		innerWidth = 1
 	}
 
-	title := sidebarTitle.Width(innerWidth).Render("--- MIDDLEWARE STATUS ---")
-
-	var b strings.Builder
-	b.WriteString(title)
-	b.WriteByte('\n')
+	var top strings.Builder
+	top.WriteString(sidebarTitle.Width(innerWidth).Render("--- MIDDLEWARE STATUS ---"))
+	top.WriteByte('\n')
 
 	if telemetry == nil {
-		b.WriteString(mutedStyle.Width(innerWidth).Render("No telemetry yet"))
+		top.WriteString(mutedStyle.Width(innerWidth).Render("No telemetry yet"))
 	} else {
 		overallStyle := stateStyle(telemetry.SummaryState).Width(innerWidth)
-		b.WriteString(overallStyle.Render("System: " + stateLabel(telemetry.SummaryState)))
-		b.WriteByte('\n')
+		top.WriteString(overallStyle.Render("System: " + stateLabel(telemetry.SummaryState)))
+		top.WriteByte('\n')
 
 		for _, n := range telemetry.IndividualStates {
-			b.WriteByte('\n')
+			top.WriteByte('\n')
 			lineStyle := stateStyle(n.State).Width(innerWidth)
 			line := fmt.Sprintf("• %s: %s", n.NodeName, stateLabel(n.State))
-			b.WriteString(lineStyle.Render(line))
+			top.WriteString(lineStyle.Render(line))
 			if n.StatusMessage != "" {
-				b.WriteByte('\n')
-				b.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
+				top.WriteByte('\n')
+				top.WriteString(mutedStyle.Width(innerWidth).Render("  " + n.StatusMessage))
 			}
 		}
 	}
+	topStr := top.String()
 
-	b.WriteString("\n\n")
-	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- CURRENT EXECUTION ---"))
+
+	available := (height - 1) - lipgloss.Height(topStr) - 2
+	if available < 1 {
+		available = 1
+	}
+
+	var execLines []string
 	if len(hwLog) == 0 {
-		b.WriteByte('\n')
-		b.WriteString(mutedStyle.Width(innerWidth).Render("No prompt running"))
+		execLines = []string{mutedStyle.Width(innerWidth).Render("No prompt running")}
 	} else {
 		for _, entry := range hwLog {
-			b.WriteByte('\n')
-			b.WriteString(mutedStyle.Width(innerWidth).Render(entry))
+			wrapped := mutedStyle.Width(innerWidth).Render(entry)
+			execLines = append(execLines, strings.Split(wrapped, "\n")...)
 		}
+	}
+
+	if len(execLines) > available {
+		execLines = execLines[len(execLines)-available:]
+		execLines[0] = mutedStyle.Width(innerWidth).Render("… earlier output hidden")
+	}
+
+	var b strings.Builder
+	b.WriteString(topStr)
+	b.WriteString("\n\n")
+	b.WriteString(sidebarTitle.Width(innerWidth).Render("--- CURRENT EXECUTION ---"))
+	for _, l := range execLines {
+		b.WriteByte('\n')
+		b.WriteString(l)
 	}
 
 	return lipgloss.NewStyle().
 		Width(width).
 		Height(height).
-		Padding(1, 1, 0, 1). // Top: 1 (matches mainCol padding), Right: 1, Bottom: 0, Left: 1
+		MaxHeight(height + 2). 
+		Padding(1, 1, 0, 1).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("#565F89")).
 		Render(b.String())
