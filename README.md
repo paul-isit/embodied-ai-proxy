@@ -1,6 +1,6 @@
 # Embodied AI Proxy
 
-A proxy layer for embodied AI systems leveraging ROS2 middleware. This project bridges high-level Large Language Models (LLMs) and robotic systems through a decoupled set of services: a Go API backend, a Go LLM proxy, a Go Bubble Tea terminal UI (TUI), and a Python ROS2 bridge client.
+A proxy layer for embodied AI systems leveraging ROS2 middleware. This project bridges high-level Large Language Models (LLMs) and robotic systems through a decoupled set of services: a Go API backend, a Go LLM proxy, and a Go Bubble Tea terminal UI (TUI). It doesn't need ROS2: it reaches the robot through the middleware's websocket bridge.
 
 ---
 
@@ -10,9 +10,8 @@ Before installing the proxy, ensure your host machine meets the following requir
 
 ### Software Requirements
 - **Operating System:** Ubuntu 22.04 LTS (or Linux / WSL2)
-- **ROS2:** Active installation of ROS2 Humble
 - **Go:** 1.22+ (for the Backend, LLM Proxy, and TUI)
-- **Python:** 3.10+ (for the ROS2 bridge client and the evaluation scripts)
+- **Python:** 3.10+ (for the evaluation scripts)
 - **Local Inference Engine (Optional):** An active installation of [Ollama](https://ollama.com/) if running local models (e.g. Gemma, Llama)
 
 ### Hardware Requirements
@@ -25,28 +24,13 @@ The proxy allows interchangeable LLM APIs scaling to your hardware capacity:
 | **Storage** | ≥15GB free space |
 
 ### External Dependency
-This application interacts with an external ROS2 Kinova Middleware repository (`ROS2-middleware`) or simulation environment.
+This application drives the ROS2 Kinova middleware (`ROS2-middleware`), real or simulated. The middleware's launch also starts the `rosbridge_server` websocket (`ws://localhost:9090`) that the backend connects to, so ROS2 only needs to be installed where the middleware runs.
 
 ---
 
 ## Setup and Installation
 
-### 1. Install System Dependencies
-The bridge relies on ROS2 Humble and `rosbridge_suite` to handle WebSocket-to-ROS translation:
-```bash
-sudo apt-get update
-sudo apt-get install ros-humble-rosbridge-suite
-```
-
-### 2. Build the ROS2 Bridge Workspace
-```bash
-cd ros2_bridge_ws
-colcon build
-source install/setup.bash
-cd ..
-```
-
-### 3. Install Python Dependencies (Evaluation Suite)
+### 1. Install Python Dependencies (Evaluation Suite)
 ```bash
 pip install -r requirements.txt
 ```
@@ -124,16 +108,9 @@ source /path/to/your/workspace/ros2_kortex_ws/install/setup.bash
 ros2 launch kinova_interface robot.launch.py
 ```
 
-### 2. Start the ROS2 Rosbridge Server
-```bash
-source /opt/ros/humble/setup.bash
-source /path/to/your/workspace/ros2_kortex_ws/install/setup.bash
-cd ros2_bridge_ws
-source install/setup.bash
-ros2 launch custom_bridge_pkg proxy_bridge.launch.py
-```
+This also starts the `rosbridge_server` websocket on `ws://localhost:9090` once the middleware is up. If you change its port (`bridge_port:=<port>`), set `rosbridge_url` in `data/config/config.json` to match.
 
-### 3. Start the Proxy/Backend with the TUI
+### 2. Start the Proxy/Backend with the TUI
 ```bash
 # if building and running for the first time
 ./run.sh --build
@@ -261,9 +238,7 @@ ROS2 Middleware Execution Layer (Kinova Gen3 Lite)
    - Standalone microservice abstracting provider APIs behind `POST /generate` with configurable timeouts and retries.
 3. **Go Terminal UI** (`tui/`):
    - Interactive Bubble Tea / Lip Gloss terminal interface connecting to the backend over WebSocket (`/ws/client`).
-4. **ROS2 Bridge Workspace** (`ros2_bridge_ws/`):
-   - Standard ROS2 package launching `rosbridge_server` WebSocket endpoint (`ws://localhost:9090`).
-5. **Evaluation Suite** (`evaluate_proxy.py` + `tests/*.yaml`):
+4. **Evaluation Suite** (`evaluate_proxy.py` + `tests/*.yaml`):
    - Batch test runner that queries `POST /api/prompt` directly against YAML-defined test cases without needing a live robot.
 
 ---
@@ -311,9 +286,6 @@ embodied-ai-proxy/
 │   ├── config/                      # Unified config loader
 │   ├── logging/                     # Dual-output logging (stdout + file)
 │   └── httpserver/                  # Graceful shutdown HTTP server
-│
-├── ros2_bridge_ws/                  # ROS 2 Humble Workspace
-│   └── src/custom_bridge_pkg/       # ROS 2 package launching rosbridge_server
 │
 └── tests/                           # YAML test suites for evaluate_proxy.py
     ├── basic_tests.yaml
