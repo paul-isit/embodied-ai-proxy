@@ -20,8 +20,12 @@ type ResetEnvironmentMsg struct {
 	Err    error
 }
 
+// WSConnectedMsg signals that the /ws/client WebSocket connection to the
+// backend was established.
 type WSConnectedMsg struct{}
 
+// WSDisconnectedMsg signals that the /ws/client WebSocket connection was
+// lost or closed, Err is nil for a clean close.
 type WSDisconnectedMsg struct {
 	Err error
 }
