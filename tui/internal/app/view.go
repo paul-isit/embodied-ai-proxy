@@ -158,6 +158,7 @@ func helpText(verbosity int) string {
 		"    /save            Save session to a text file",
 		"    /reset-env       Reset environment objects/obstacles to their configured defaults",
 		"    /copy            Copy the latest prompt and response to the clipboard",
+		"    /scan            Detect objects with the camera and update the object list",
 		"",
 		"  Session",
 		"    Enter          Submit prompt",

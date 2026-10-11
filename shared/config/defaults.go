@@ -8,6 +8,9 @@ const (
 	DefaultProxyURL     = "http://localhost:8081"
 	DefaultRosbridgeURL = "ws://localhost:9090"
 
+	// How long the backend waits for the robot to run a whole recipe
+	DefaultExecutionTimeoutSeconds = 300
+
 	DefaultLLMProvider       = "ollama"
 	DefaultLLMModel          = "gemma3:1b"
 	DefaultLLMBaseURL        = "http://localhost:11434/api/generate"

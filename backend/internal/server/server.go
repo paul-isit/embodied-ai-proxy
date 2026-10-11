@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // jsonSchemaFileName and systemPromptFileName are the two backend-specific
@@ -84,6 +85,7 @@ func (server *AppServer) initialize() error {
 	server.rb = rb
 
 	p := pipeline.New(hub, rb, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
+	p.ExecutionTimeout = time.Duration(appConfig.Server.ExecutionTimeoutSeconds) * time.Second
 	hub.SetPromptHandler(p)
 
 	log.Printf("[Server] Registering route: GET /ws/client")
@@ -94,6 +96,8 @@ func (server *AppServer) initialize() error {
 	server.mux.HandleFunc("/api/info", api.InfoHandler(appConfig, hub, p))
 	log.Printf("[Server] Registering route: POST /api/reset")
 	server.mux.HandleFunc("/api/reset", api.ResetHandler(rb))
+	log.Printf("[Server] Registering route: POST /api/scan")
+	server.mux.HandleFunc("/api/scan", api.ScanHandler(rb))
 
 	return nil
 }

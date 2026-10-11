@@ -12,7 +12,7 @@ import (
 
 const (
 	defaultLLMTimeout         = 60 * time.Second
-	defaultExecutionTimeout   = 120 * time.Second
+	defaultExecutionTimeout   = 300 * time.Second
 	environmentRefreshTimeout = 5 * time.Second
 )
 
@@ -59,7 +59,7 @@ func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 
 	if recipeStatus(result.Doc) == "success" {
 		if p.bridge != nil {
-			execCtx, execCancel := context.WithTimeout(ctx, defaultExecutionTimeout)
+			execCtx, execCancel := context.WithTimeout(ctx, p.executionTimeout())
 			defer execCancel()
 
 			if err := p.bridge.ExecuteRecipe(execCtx, result.Parsed); err != nil {

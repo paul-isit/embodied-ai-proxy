@@ -20,6 +20,12 @@ type ResetEnvironmentMsg struct {
 	Err    error
 }
 
+// ScanMsg delivers the result of a POST /api/scan call, triggered by the /scan slash command.
+type ScanMsg struct {
+	Result *client.ScanResult
+	Err    error
+}
+
 type WSConnectedMsg struct{}
 
 type WSDisconnectedMsg struct {

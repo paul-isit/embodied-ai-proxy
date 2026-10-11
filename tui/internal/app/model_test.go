@@ -152,3 +152,30 @@ func TestSaveSessionWritesEntriesToFile(t *testing.T) {
 		t.Fatalf("expected ANSI codes to be stripped, got %s", content)
 	}
 }
+
+func TestScanMsgShowsAddedAndRemovedNames(t *testing.T) {
+	m := NewModel("http://localhost:8080", "")
+	m.viewport.Width = 120
+
+	updated, _ := m.Update(ScanMsg{Result: &client.ScanResult{
+		Success: true, Added: []string{"green_cup", "red_object"}, Removed: []string{"red_bottle"}, Unchanged: 1,
+	}})
+	nm := updated.(Model)
+
+	want := "Scan: 2 added (green_cup, red_object), 1 removed (red_bottle), 1 unchanged"
+	if len(nm.entries) != 1 || !strings.Contains(nm.entries[0], want) {
+		t.Fatalf("expected %q in the feed, got %v", want, nm.entries)
+	}
+}
+
+func TestScanMsgShowsFailure(t *testing.T) {
+	m := NewModel("http://localhost:8080", "")
+	m.viewport.Width = 120
+
+	updated, _ := m.Update(ScanMsg{Result: &client.ScanResult{Message: "call /vision/snapshot (is the vision node running?): service does not exist"}})
+	nm := updated.(Model)
+
+	if len(nm.entries) != 1 || !strings.Contains(nm.entries[0], "scan failed: call /vision/snapshot (is the vision node running?)") {
+		t.Fatalf("expected the scan failure in the feed, got %v", nm.entries)
+	}
+}
