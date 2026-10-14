@@ -51,6 +51,7 @@ func TestInfoHandler_ReportsServerProxyAndHubState(t *testing.T) {
 			LLMConfig: sharedconfig.LLMConfig{
 				Provider: "ollama",
 				Model:    "gemma3:1b",
+				APIKey:   "secret-key",
 			},
 		},
 	}
@@ -69,6 +70,12 @@ func TestInfoHandler_ReportsServerProxyAndHubState(t *testing.T) {
 	}
 	if got.Server.Port != 8080 || got.LLM.Provider != "ollama" || got.LLM.Model != "gemma3:1b" {
 		t.Errorf("unexpected response: %+v", got)
+	}
+	if got.LLM.APIKey != "" {
+		t.Errorf("api_key leaked in response: %q", got.LLM.APIKey)
+	}
+	if cfg.Proxy.LLMConfig.APIKey != "secret-key" {
+		t.Error("handler must not clear the key in the shared config")
 	}
 	if got.BridgeConnected {
 		t.Error("expected bridge_connected=false with no bridge dialed")

@@ -30,10 +30,12 @@ type infoResponse struct {
 func InfoHandler(cfg *sharedconfig.AppConfig, hub *websocket.Hub, p *pipeline.Pipeline) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		clients, bridgeConnected := hub.Stats()
+		llm := cfg.Proxy.LLMConfig
+		llm.APIKey = "" // redacting the api before sending over http
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(infoResponse{
 			Server:           cfg.Server,
-			LLM:              cfg.Proxy.LLMConfig,
+			LLM:              llm,
 			BridgeConnected:  bridgeConnected,
 			ClientsConnected: clients,
 			SystemPrompt:     p.SystemPrompt(),
