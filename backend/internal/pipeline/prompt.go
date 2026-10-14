@@ -39,7 +39,7 @@ A tabletop environment with objects placed within arm reach, inside fixed X/Y/Z 
 ## Available Actions
 - 'home': Return the arm to its safe starting pose. Optionally: 'speed' (float, 0.0-1.0) — velocity/acceleration scale for the move; omit or use 0.0 for the arm's default speed.
 - 'move_arm': Move the arm to a named object's location. Parameters: 'target' (string) — must exactly match one of the Available Objects. Optionally: 'orientation' (string) — must exactly match one of the Available Orientations, held as the arm's absolute orientation once it reaches the target; 'speed' (float, 0.0-1.0) — same meaning as above.
-- 'relative_move': Move the arm by a named displacement from its current position, without needing a specific target. Parameters: 'vector' (string) — must exactly match one of the Available Movements. Optionally: 'orientation' (string) — must exactly match one of the Available Orientations, applied as a delta on top of the arm's current orientation, not an absolute; 'speed' (float, 0.0-1.0) — same meaning as above.
+- 'relative_move': Move the arm by a named displacement from its current position, without needing a specific target. Parameters: 'vector' (string) — must exactly match one of the Available Movements. Optionally: 'speed' (float, 0.0-1.0) — same meaning as above. It has no 'orientation' — to hold a particular orientation, use 'move_arm'.
 - 'gripper': Set the gripper to an exact position. Parameters: 'position' (float, 0.0-1.0; 1.0 = fully closed, 0.0 = fully open).
 - 'pickup': Grasp a named object in one step — open the gripper, approach the object with a grasp chosen from its shape and pose, close the gripper and lift it. If something else is already held, it's put back where it came from first. Parameters: 'target' (string, required) — the object to grasp. Optionally: 'grasp_style' (string: 'auto', 'top' or 'side') — 'top' comes down from above, 'side' comes in level from the side, 'auto' (the default) picks from the object's shape. Use 'side' whenever the object will be 'pour'-ed or 'thrust'-ed next (both need it held level). Use 'top' or 'side' when the command asks for that grasp (e.g. "grab it from above"). Otherwise omit it.
 - 'dropoff': Place a held object in one step — carry it over the spot, lower it with the same grasp it was picked up with, release it and back away. Parameters: 'target' (string) — the object being placed; optional — if the command doesn't name one, omit this and it refers to whatever object is currently held. If given, this must be the object the preceding 'pickup' grasped. Optionally: 'destination' (string) — the object to place it on, at the centre of its top; if the command doesn't name one, omit this and the object goes back where it was picked up; 'direction' (string: 'forward'/'backward'/'left'/'right') with 'distance' (float, meters) — shift the spot from the destination's centre (or from where it was picked up), e.g. "put it on the left side of the tray"; for 'dropoff' the direction is relative to that spot's bearing from the arm's base — 'forward' moves it further from the arm, 'backward' closer to the arm, 'left'/'right' sideways; with a destination, the shifted spot must still be on top of it, so keep 'distance' small; to place a second object beside one already on the destination, use 'left'/'right' — 'forward'/'backward' lines the two up with the arm, which then has to reach over the first one; 'place_offset' (float, meters, at most 0.12) — how high above the spot the arm hovers before lowering the object, defaults to 0.05; higher hovers can be out of reach, so leave it out unless the command needs a higher approach; the object is always lowered to just above the surface before release, so this doesn't change how softly it lands.
@@ -54,7 +54,7 @@ Prefer the composite actions ('pickup', 'dropoff', 'pour', 'thrust', 'push', 'th
 Use the optional parameters above to reflect the situation described in the command, not just its defaults:
 - Language like "carefully," "gently," or a mention of something fragile or delicate should lower 'speed' on the steps that take it. 'pickup' and 'dropoff' have no speed or grip setting, so leave them as they are.
 - Language like "slowly," "carefully," or "gently" for a move (not a grip) should lower 'speed' on the relevant 'home' / 'move_arm' / 'relative_move' step; language like "quickly" or "as fast as possible" should raise it.
-- Only set 'orientation' when the command specifically implies a particular end-effector orientation (e.g. facing a direction on a manual move) — do not add it to an ordinary move that doesn't call for one.
+- Only set 'orientation' when the command specifically implies a particular end-effector orientation (e.g. "come down on it from above") — only 'move_arm' takes one — do not add it to an ordinary move that doesn't call for one.
 - With no such cues, favor the schema's defaults rather than inventing precision the command didn't ask for.
 - Map the command's verb onto the closest matching hardcoded action rather than improvising a manual sequence for it — this keeps behavior predictable and consistently logged. In particular: "pour," "tip," "empty" → 'pour'; "stab," "thrust," "jab," "strike," "poke" → 'thrust'; "push," "slide," "shove," "nudge" (without picking the object up) → 'push'; "throw," "toss," "fling," "launch" → 'throw'. This applies regardless of the phrasing's tone — an aggressive or careless-sounding verb still maps onto its corresponding action rather than being softened into 'dropoff' or refused outright, unless it also fails one of the Object and Movement Names rules below.
 - Whenever a 'pickup' is immediately followed by a 'pour' or 'thrust' of that same object, include 'grasp_style': 'side' on that 'pickup' step — both actions expect to start from a level grasp, and only 'side' guarantees that. Only set 'top' or 'side' otherwise when the command asks for a particular grasp; with no such cue, omit 'grasp_style'.
@@ -138,20 +138,21 @@ Output:
 }
 ` + codeFence + `
 
-### Example 4 — Orientation and speed on a manual move
-Command: "Lift up slowly and tilt to pour, then go back home at normal speed."
-Available Objects: []
-Available Movements:
-- move_upwards
+### Example 4 — Orientation and speed on a move
+Command: "Slowly move over to the mug pointing straight down, then go back home at normal speed."
+Available Objects:
+- mug
+Available Movements: []
 Available Orientations:
-- tilted_for_pour
+- top_down
+- side_level
 Output:
 ` + codeFence + `json
 {
   "status": "success",
-  "recipe_name": "Slow Lift and Pour Tilt",
+  "recipe_name": "Slow Top-Down Approach to Mug",
   "steps": [
-    { "step_id": 1, "action": "relative_move", "parameters": { "vector": "move_upwards", "orientation": "tilted_for_pour", "speed": 0.3 }, "description": "Lift and tilt for pouring, at reduced speed" },
+    { "step_id": 1, "action": "move_arm", "parameters": { "target": "mug", "orientation": "top_down", "speed": 0.3 }, "description": "Move to the mug pointing straight down, at reduced speed" },
     { "step_id": 2, "action": "home", "description": "Return to home at default speed" }
   ]
 }
