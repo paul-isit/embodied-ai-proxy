@@ -33,7 +33,9 @@ show_help() {
     echo "Options:"
     echo "  (no args)        Run existing binaries (Proxy + Backend + TUI)"
     echo "  --build, -b      Build all Go binaries first, then run"
-    echo "  --headless, -s   Start Proxy and Backend only (headless / evaluation mode)"
+    echo "  --headless, -s   Start Proxy and Backend only (no TUI)"
+    echo "  --eval FILE...   Start the Proxy, run JSON test suites through the pipeline, report and exit"
+    echo "                   (must be the last option, e.g. ./run.sh -b --eval tests/*.json)"
     echo "  --build-only     Compile all binaries to bin/ and exit"
     echo "  --clean          Remove compiled binaries and logs"
     echo "  --help, -h       Show this help message"
@@ -123,6 +125,7 @@ wait_for_port() {
 DO_BUILD=false
 HEADLESS=false
 BUILD_ONLY=false
+EVAL_FILES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -138,6 +141,22 @@ while [[ $# -gt 0 ]]; do
         --headless|-s)
             HEADLESS=true
             shift
+            ;;
+        --eval)
+            shift
+            if [ $# -eq 0 ]; then
+                echo -e "${RED}[Runner] --eval needs at least one test suite file${NC}"
+                exit 1
+            fi
+            # Absolute paths, since --build changes directory before they're used
+            for suiteFile in "$@"; do
+                if [ ! -f "$suiteFile" ]; then
+                    echo -e "${RED}[Runner] Test suite not found: $suiteFile${NC}"
+                    exit 1
+                fi
+                EVAL_FILES+=("$(cd "$(dirname "$suiteFile")" && pwd)/$(basename "$suiteFile")")
+            done
+            shift $#
             ;;
         --clean)
             echo -e "${YELLOW}[Clean] Removing binaries and logs...${NC}"
@@ -175,10 +194,22 @@ for bin in "llm-proxy" "backend" "tui"; do
     fi
 done
 
-# Check for existing processes on ports 8080 and 8081
+# Check for an existing LLM proxy on port 8081
 if check_port 8081; then
     echo -e "${RED}[Runner] Port 8081 is already in use! Is llm-proxy already running?${NC}"
     exit 1
+fi
+
+# Eval mode: only the proxy is needed - the backend runs the suites in-process and exits
+if [ ${#EVAL_FILES[@]} -gt 0 ]; then
+    echo -e "${CYAN}[Runner] Starting LLM Proxy on :8081 (log: data/logs/proxy.log)...${NC}"
+    "${BIN_DIR}/llm-proxy" -dataDir "${DATA_DIR}" > /dev/null 2>&1 &
+    PROXY_PID=$!
+    wait_for_port 8081 "LLM Proxy"
+    echo -e "${CYAN}[Runner] Running ${#EVAL_FILES[@]} test suite(s) (full prompts in data/logs/eval.log)...${NC}"
+    set +e
+    "${BIN_DIR}/backend" -dataDir "${DATA_DIR}" -eval "${EVAL_FILES[@]}"
+    exit $?
 fi
 
 if check_port 8080; then

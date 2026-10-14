@@ -529,3 +529,19 @@ func TestValidator_DropoffCapsPlaceOffset(t *testing.T) {
 		}
 	}
 }
+
+// Only move_arm takes 'orientation'; relative_move must reject it.
+func TestValidator_RelativeMoveRejectsOrientation(t *testing.T) {
+	v := newTestValidator(t)
+
+	raw := []byte(`{
+		"status": "success",
+		"recipe_name": "Lift",
+		"steps": [
+			{"step_id": 1, "action": "relative_move", "description": "lift", "parameters": {"vector": "move_upwards", "orientation": "top_down"}}
+		]
+	}`)
+	if _, err := v.Validate(raw); err == nil {
+		t.Error("Validate() error = nil, want error for relative_move with 'orientation'")
+	}
+}

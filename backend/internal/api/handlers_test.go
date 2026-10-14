@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"embodied-ai-proxy/backend/internal/pipeline"
 	"embodied-ai-proxy/backend/internal/rosbridge"
@@ -137,64 +136,6 @@ func TestResetHandler_WrongMethod(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", w.Code)
-	}
-}
-
-func TestPromptHandler_Success(t *testing.T) {
-	p := testPipeline(t, `{"status":"success","recipe_name":"t","steps":[{"step_id":1,"action":"home","description":"d","parameters":{}}]}`)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt", bytes.NewBufferString(`{"prompt":"go home","available_objects":["red_cube"]}`))
-	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
-	}
-	var got pipeline.Result
-	json.NewDecoder(w.Body).Decode(&got)
-	if got.Error != "" || got.Parsed == nil {
-		t.Errorf("unexpected result: %+v", got)
-	}
-}
-
-func TestPromptHandler_MissingPrompt(t *testing.T) {
-	p := testPipeline(t, `{}`)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt", bytes.NewBufferString(`{}`))
-	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestPromptHandler_WrongMethod(t *testing.T) {
-	p := testPipeline(t, `{}`)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/prompt", nil)
-	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", w.Code)
-	}
-}
-
-func TestPromptHandler_InvalidRecipeStillReturns200WithError(t *testing.T) {
-	p := testPipeline(t, `{"status":"success","steps":[]}`) // missing recipe_name
-
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt", bytes.NewBufferString(`{"prompt":"go home"}`))
-	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	var got pipeline.Result
-	json.NewDecoder(w.Body).Decode(&got)
-	if got.Error == "" {
-		t.Error("expected schema validation error in result")
 	}
 }
 

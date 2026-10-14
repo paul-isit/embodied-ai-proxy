@@ -131,10 +131,6 @@
                     "type": "object",
                     "properties": {
                       "vector": { "$ref": "#/$defs/vectorName" },
-                      "orientation": {
-                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
-                        "description": "Optional orientation delta applied on top of the arm's current orientation. Omit to keep the current orientation unchanged."
-                      },
                       "speed": { "$ref": "#/$defs/speedScale" }
                     },
                     "required": ["vector"],
