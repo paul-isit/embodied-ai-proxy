@@ -23,7 +23,7 @@ type LLMConfig struct {
 	Provider       string  `json:"provider"`
 	Model          string  `json:"model"`
 	BaseURL        string  `json:"base_url"`
-	APIKey         string  `json:"api_key"` // TODO: support environment-variable override before any shared/production deployment (see design.md Risks/Trade-offs)
+	APIKey         string  `json:"api_key"` // TODO: support environment-variable override before any shared/production deployment
 	MaxTokens      int     `json:"max_tokens"`
 	Temperature    float64 `json:"temperature"`
 	TimeoutSeconds int     `json:"timeout_seconds"`
