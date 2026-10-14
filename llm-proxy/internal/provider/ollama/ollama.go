@@ -56,7 +56,7 @@ type generateResponse struct {
 }
 
 // Generate implements provider.Provider. Per-request MaxTokens/Temperature
-// override the adapter's configured defaults when non-zero.
+// override the adapter's configured defaults when set.
 func (a *Adapter) Generate(ctx context.Context, req provider.Request) (provider.Response, error) {
 	maxTokens, temperature := provider.ResolveParams(a.maxTokens, a.temperature, req)
 

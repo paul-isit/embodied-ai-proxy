@@ -39,7 +39,7 @@
       "type": "number",
       "minimum": -3.15,
       "maximum": 3.15,
-      "description": "Angle in radians, applied as an orientation delta from the arm's current pose."
+      "description": "Angle in radians."
     },
     "direction": {
       "type": "string",
@@ -80,7 +80,7 @@
             "oneOf": [
               {
                 "type": "object",
-                "description": "Move the arm to its safe starting pose. Takes no parameters.",
+                "description": "Move the arm to its safe starting pose. Only takes an optional 'speed'.",
                 "properties": {
                   "step_id": { "type": "integer", "minimum": 1 },
                   "action": { "const": "home" },
@@ -241,7 +241,7 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to carry the object in, relative to its own original bearing from the arm, before tilting. Optional - alternative to 'destination', give at most one of the two. Requires 'distance' to be meaningful. If neither this nor 'destination' is given, the object is tilted right where it already is, with no horizontal move first."
+                        "description": "Direction to carry the object in, relative to its own original bearing from the arm, before tilting. Optional - alternative to 'destination', give at most one of the two. If neither this nor 'destination' is given, the object is tilted right where it already is, with no horizontal move first."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
@@ -249,7 +249,7 @@
                       },
                       "lift_height": {
                         "allOf": [{ "$ref": "#/$defs/liftHeight" }],
-                        "description": "How high to lift the object above its grasp height before carrying it toward the destination. Defaults to 0.14 if omitted."
+                        "description": "How high to lift the object above its current height before carrying it toward the destination. Defaults to 0.14 if omitted."
                       },
                       "tilt_angle": {
                         "allOf": [{ "$ref": "#/$defs/angleRadians" }],
@@ -288,11 +288,11 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to thrust the object in, relative to its own original resting bearing from the arm (from before it was picked up). Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
+                        "description": "Direction to thrust the object in, relative to its own original resting bearing from the arm (from before it was picked up). Alternative to 'destination' - give exactly one of the two."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
-                        "description": "Only used with 'direction'. Defaults to 0.4 if omitted - verified as close to the practical reach limit for a clean, collision-free swing (~77 degrees of shoulder motion); going noticeably further (0.5+) risks the motion becoming unreliable."
+                        "description": "Only used with 'direction'. If omitted, the furthest reachable distance is used."
                       },
                       "lift_height": {
                         "allOf": [{ "$ref": "#/$defs/liftHeight" }],
@@ -333,11 +333,11 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to push the object by, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful. Push only ever extends an object further from the arm's own base - it's not designed to drag one back in, so avoid 'backward' unless truly needed."
+                        "description": "Direction to push the object by, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Push only ever extends an object further from the arm's own base - it's not designed to drag one back in, so avoid 'backward' unless truly needed."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
-                        "description": "Only used with 'direction'. Defaults to 0.2 if omitted."
+                        "description": "Only used with 'direction'. If omitted, the furthest reachable distance is used."
                       },
                       "close_position": {
                         "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
@@ -376,7 +376,7 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to throw the object in, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
+                        "description": "Direction to throw the object in, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
@@ -388,7 +388,7 @@
                       },
                       "speed": {
                         "allOf": [{ "$ref": "#/$defs/speedScale" }],
-                        "description": "Velocity/acceleration scale for the rotate/wind-up moves only - the fling itself always runs at full speed regardless of this value. Omit for the arm's configured default."
+                        "description": "Velocity/acceleration scale for the rotate, wind-up and fling moves. Without it, the fling runs at full speed."
                       }
                     },
                     "anyOf": [

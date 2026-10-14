@@ -9,12 +9,12 @@ A proxy layer for embodied AI systems leveraging ROS2 middleware. This project b
 Before installing the proxy, ensure your host machine meets the following requirements:
 
 ### Software Requirements
-- **Operating System:** Ubuntu 22.04 LTS (or Linux / WSL2)
-- **Go:** 1.22+ (for the Backend, LLM Proxy, and TUI)
+- **Operating System:** Linux, macOS or WSL2 (needs `bash`, plus `lsof` or `ss` for `run.sh`)
+- **Go:** 1.26.5+ (for the Backend, LLM Proxy, and TUI)
 - **Local Inference Engine (Optional):** An active installation of [Ollama](https://ollama.com/) if running local models (e.g. Gemma, Llama)
 
 ### Hardware Requirements
-The proxy allows interchangeable LLM APIs scaling to your hardware capacity:
+Only relevant when running a local model through Ollama:
 | Component | Requirement |
 | :--- | :--- |
 | **RAM** | 8GB minimum, 16GB+ recommended |
@@ -41,7 +41,8 @@ Use the [`run.sh`](run.sh) script to launch the LLM Proxy, Backend Server, and T
 # 3. Headless Mode (starts Proxy + Backend only, useful for ROS2 testing)
 ./run.sh --headless
 
-# 4. Evaluate the configured LLM against JSON test suites (Proxy only, no robot needed)
+# 4. Evaluate the configured LLM against JSON test suites (Proxy only, no robot needed).
+#    --eval must be the last option.
 ./run.sh --eval tests/*.json
 
 # 5. Build Only (compiles all Go binaries to bin/ and exits)
@@ -51,7 +52,7 @@ Use the [`run.sh`](run.sh) script to launch the LLM Proxy, Backend Server, and T
 ./run.sh --clean
 ```
 
-> **Note:** When running `./run.sh`, quitting the TUI (`Ctrl+C` or `q`) automatically terminates the background `backend` and `llm-proxy` processes gracefully.
+> **Note:** When running `./run.sh`, quitting the TUI (`Ctrl+C`) stops the background `backend` and `llm-proxy` processes. `-b` and `-s` are short for `--build` and `--headless`.
 
 ---
 
@@ -123,7 +124,9 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 {
   "server": {
     "port": 8080,
-    "proxy_url": "http://localhost:8081"
+    "proxy_url": "http://localhost:8081",
+    "rosbridge_url": "ws://localhost:9090",
+    "execution_timeout_seconds": 300
   },
   "proxy": {
     "port": 8081,
@@ -139,6 +142,8 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
   }
 }
 ```
+
+Missing keys fall back to the defaults shown. The `port` values are informational: the services listen on their `-httpPort` flag (default 8080 and 8081), so change `proxy_url` too if you change the proxy's port. API keys are only read from this file, so don't commit real keys.
 
 ### Supported Providers
 1. **Ollama** (Local or remote endpoint)
@@ -165,7 +170,7 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 ```json
 {
   "provider": "gemini",
-  "model": "gemini-1.5-flash",
+  "model": "gemini-2.5-flash",
   "base_url": "https://generativelanguage.googleapis.com/v1beta/models",
   "api_key": "YOUR_GEMINI_API_KEY",
   "max_tokens": 1024,
@@ -191,7 +196,7 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 ```json
 {
   "provider": "anthropic",
-  "model": "claude-3-5-sonnet-20241022",
+  "model": "claude-sonnet-5-5",
   "base_url": "https://api.anthropic.com/v1/messages",
   "api_key": "YOUR_ANTHROPIC_API_KEY",
   "max_tokens": 1024,
@@ -207,13 +212,15 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 ```text
 User Input (TUI over WebSocket /ws/client, or test suites via backend -eval)
             ↓
-Prompt Synthesis (Go Backend: system prompt + schema + environment objects + command)
+Environment refresh (objects, movements, orientations, table bounds from /get_robot_parameters)
+            ↓
+Prompt Synthesis (Go Backend: system prompt + schema + environment + command)
             ↓
 LLM Dispatch (Go LLM Proxy -> Ollama / OpenAI / Anthropic / Gemini)
             ↓
-Structured JSON Action Recipe
+Schema Validation (Go Backend, data/config/json_schema.json)
             ↓
-Schema Validation Layer (Go Backend, data/config/json_schema.json)
+Name Resolution (fuzzy-match object names; one LLM retry if an object is missing)
             ↓
 Direct ROS2 Rosbridge Client (Go Backend -> ws://localhost:9090 /execute_recipe)
             ↓
@@ -224,13 +231,14 @@ ROS2 Middleware Execution Layer (Kinova Gen3 Lite)
 
 1. **Go Backend** (`backend/`):
    - Owns application state, environment object registry, and WebSocket client hub (`/ws/client`).
-   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying environment objects (`/get_robot_parameters`), listening to telemetry (`/system/status`), and executing action recipes (`/execute_recipe`).
-   - Uses `internal/pipeline` to build prompts, query the LLM proxy, validate output against `data/config/json_schema.json`, and dispatch action recipes.
+   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying the environment (`/get_robot_parameters`), listening to telemetry (`/system/status`), executing recipes (`/execute_recipe`), resetting objects (`/reset_environment`) and triggering camera scans (`/vision/snapshot`, needs the middleware's `enable_CV:=true`).
+   - Uses `internal/pipeline` to build prompts, query the LLM proxy, validate output against `data/config/json_schema.json`, resolve names, and dispatch action recipes.
+   - Accepts one TUI client at a time.
    - Exposes `GET /api/info` (live stats, configuration, prompt), `POST /api/reset` and `POST /api/scan`.
 2. **Go LLM Proxy** (`llm-proxy/`):
-   - Standalone microservice abstracting provider APIs behind `POST /generate` with configurable timeouts and retries.
+   - Standalone microservice abstracting provider APIs behind `POST /generate`, with a configurable timeout and one retry on transient errors.
 3. **Go Terminal UI** (`tui/`):
-   - Interactive Bubble Tea / Lip Gloss terminal interface connecting to the backend over WebSocket (`/ws/client`).
+   - Interactive Bubble Tea / Lip Gloss terminal interface connecting to the backend over WebSocket (`/ws/client`). Type `/help` for its commands, including `/reset-env`, `/scan`, `/save` and `/copy`.
 4. **Evaluation Suite** (`backend -eval` + `tests/*.json`):
    - Runs each test prompt through the real pipeline in-process (LLM call, schema validation, name resolution, retry) and checks the result against the expected outcomes, without needing a live robot.
 
@@ -247,14 +255,15 @@ embodied-ai-proxy/
 │   ├── config/config.json           # Single unified configuration file
 │   ├── config/json_schema.json      # JSON Schema for action recipe validation
 │   ├── config/system_prompt.md      # System prompt template
-│   └── logs/                        # Service logs (server.log, proxy.log, tui.log, eval.log)
+│   └── logs/                        # Created at runtime: service logs and /save sessions
 │
 ├── backend/                         # Go Backend Service
 │   ├── cmd/server/main.go           # Server entrypoint (-eval runs test suites instead)
 │   └── internal/
 │       ├── api/                     # REST handlers (GET /api/info, POST /api/reset, POST /api/scan)
 │       ├── eval/                    # Test suite runner for -eval
-│       ├── pipeline/                # Prompt synthesis, LLM dispatch, schema validation
+│       ├── matcher/                 # Fuzzy object-name matching
+│       ├── pipeline/                # Prompt synthesis, LLM dispatch, validation, name resolution, retry
 │       ├── rosbridge/               # Direct ROS 2 rosbridge WebSocket client
 │       ├── validator/               # jsonschema/v5 validator engine
 │       ├── websocket/               # Hub for /ws/client
@@ -332,7 +341,17 @@ Full prompts and LLM responses are logged to `data/logs/eval.log`.
 
 ## Logging & Auditing
 
-Logs are written simultaneously to standard output and persisted under `data/logs/`:
-- `data/logs/server.log` - Go Backend logs (WebSocket events, pipeline execution, schema validation)
-- `data/logs/proxy.log` - LLM Proxy logs (HTTP request/response timings, provider errors)
-- `data/logs/tui.log` - TUI debug logs
+Logs are written under `data/logs/`. The backend and LLM proxy also log to stdout when run by hand; `run.sh` discards their stdout.
+- `server.log` - Go Backend logs (WebSocket events, pipeline execution, schema validation)
+- `proxy.log` - LLM Proxy logs (HTTP request/response timings, provider errors)
+- `tui.log` - TUI debug logs
+- `eval.log` - full prompts and responses from `-eval`
+- `session_<timestamp>.txt` - sessions saved with the TUI's `/save`
+
+`./run.sh --clean` deletes all of them.
+
+---
+
+## License
+
+Apache 2.0. See [LICENSE](LICENSE).

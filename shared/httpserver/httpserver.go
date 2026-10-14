@@ -30,8 +30,8 @@ const (
 // Deliberately not set: ReadTimeout/WriteTimeout. Both are enforced by
 // setting a deadline on the underlying connection before the handler runs,
 // and that deadline is NOT cleared when a handler hijacks the connection
-// (as the backend's WebSocket hub does for /ws/client and /ws/bridge) - so
-// setting either here would silently force-close every TUI/bridge
+// (as the backend's WebSocket hub does for /ws/client) - so
+// setting either here would silently force-close every TUI
 // connection once the deadline elapsed, regardless of whether it was still
 // in active use. Revisit alongside adding read/write deadlines and
 // ping/pong keepalives to the hub itself, not in isolation here.
