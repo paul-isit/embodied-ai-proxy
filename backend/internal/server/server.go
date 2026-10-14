@@ -32,9 +32,11 @@ type ApplicationArgs struct {
 }
 
 type AppServer struct {
-	args ApplicationArgs
-	mux  *http.ServeMux
-	rb   *rosbridge.Client
+	args           ApplicationArgs
+	mux            *http.ServeMux
+	rb             *rosbridge.Client
+	promptPipeline *pipeline.Pipeline
+	llmConfig      sharedconfig.LLMConfig
 }
 
 func New(args ApplicationArgs) (*AppServer, error) {
@@ -87,11 +89,11 @@ func (server *AppServer) initialize() error {
 	p := pipeline.New(hub, rb, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
 	p.ExecutionTimeout = time.Duration(appConfig.Server.ExecutionTimeoutSeconds) * time.Second
 	hub.SetPromptHandler(p)
+	server.promptPipeline = p
+	server.llmConfig = appConfig.Proxy.LLMConfig
 
 	log.Printf("[Server] Registering route: GET /ws/client")
 	server.mux.HandleFunc("/ws/client", hub.ServeClient)
-	log.Printf("[Server] Registering route: POST /api/prompt")
-	server.mux.HandleFunc("/api/prompt", api.PromptHandler(p))
 	log.Printf("[Server] Registering route: GET /api/info")
 	server.mux.HandleFunc("/api/info", api.InfoHandler(appConfig, hub, p))
 	log.Printf("[Server] Registering route: POST /api/reset")
@@ -116,6 +118,16 @@ func (server *AppServer) initialize() error {
 //
 //	return nil
 //}
+
+// Pipeline returns the prompt pipeline.
+func (server *AppServer) Pipeline() *pipeline.Pipeline {
+	return server.promptPipeline
+}
+
+// LLMConfig returns the LLM the proxy is configured to use.
+func (server *AppServer) LLMConfig() sharedconfig.LLMConfig {
+	return server.llmConfig
+}
 
 func (server *AppServer) Start(ctx context.Context) error {
 	server.rb.Start(ctx)
