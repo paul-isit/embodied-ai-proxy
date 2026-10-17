@@ -27,8 +27,8 @@ type ROSBridge interface {
 
 // Pipeline builds prompts from the system prompt template + schema +
 // available objects, dispatches them to the LLM proxy, and validates the
-// result against the action-recipe schema. Its Run method also
-// backs the synchronous HTTP endpoint.
+// result against the action-recipe schema. Run is shared by the
+// WebSocket handler and -eval.
 type Pipeline struct {
 	hub          *websocket.Hub
 	bridge       ROSBridge
@@ -37,6 +37,16 @@ type Pipeline struct {
 	systemPrompt string
 	schemaBlock  string
 	httpClient   *http.Client
+
+	// How long to wait for the robot to run a recipe. Zero means defaultExecutionTimeout.
+	ExecutionTimeout time.Duration
+}
+
+func (p *Pipeline) executionTimeout() time.Duration {
+	if p.ExecutionTimeout > 0 {
+		return p.ExecutionTimeout
+	}
+	return defaultExecutionTimeout
 }
 
 // New creates a new Pipeline coordinator.

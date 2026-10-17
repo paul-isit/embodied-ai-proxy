@@ -39,7 +39,7 @@
       "type": "number",
       "minimum": -3.15,
       "maximum": 3.15,
-      "description": "Angle in radians, applied as an orientation delta from the arm's current pose."
+      "description": "Angle in radians."
     },
     "direction": {
       "type": "string",
@@ -53,18 +53,8 @@
     },
     "graspStyle": {
       "type": "string",
-      "enum": ["side"],
-      "description": "'side' computes and verifies a flat, side-on grasp from the object's own shape/pose (BOX or CYLINDER shapes) - each candidate is checked reachable/collision-free before use, not assumed from a fixed preset. Omit for the default: unconstrained orientation at the object's exact center, whatever the planner picks."
-    },
-    "graspOffset": {
-      "type": "object",
-      "properties": {
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "z": { "type": "number" }
-      },
-      "additionalProperties": false,
-      "description": "Manual x/y/z shift in meters off the object's registered center for the approach point. Only meaningful paired with an explicit manual 'orientation' - an orientation that's valid at one point in space isn't necessarily valid at a different point (e.g. the object's exact center)."
+      "enum": ["auto", "top", "side"],
+      "description": "How the gripper approaches the object. 'top' comes down from above, 'side' comes in level from the side. 'auto' (the default) picks from the object's shape: side for tall, thin objects, top otherwise. The arm checks each grasp is reachable before using it."
     },
     "liftHeight": {
       "type": "number",
@@ -90,7 +80,7 @@
             "oneOf": [
               {
                 "type": "object",
-                "description": "Move the arm to its safe starting pose. Takes no parameters.",
+                "description": "Move the arm to its safe starting pose. Only takes an optional 'speed'.",
                 "properties": {
                   "step_id": { "type": "integer", "minimum": 1 },
                   "action": { "const": "home" },
@@ -141,10 +131,6 @@
                     "type": "object",
                     "properties": {
                       "vector": { "$ref": "#/$defs/vectorName" },
-                      "orientation": {
-                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
-                        "description": "Optional orientation delta applied on top of the arm's current orientation. Omit to keep the current orientation unchanged."
-                      },
                       "speed": { "$ref": "#/$defs/speedScale" }
                     },
                     "required": ["vector"],
@@ -175,7 +161,7 @@
               },
               {
                 "type": "object",
-                "description": "Composite: open the gripper, move to the target, close the gripper, and mark it grasped.",
+                "description": "Composite: open the gripper, approach the object with a grasp chosen from its shape and pose, close the gripper, and lift it.",
                 "properties": {
                   "step_id": { "type": "integer", "minimum": 1 },
                   "action": { "const": "pickup" },
@@ -186,23 +172,7 @@
                       "target": { "$ref": "#/$defs/objectName" },
                       "grasp_style": {
                         "allOf": [{ "$ref": "#/$defs/graspStyle" }],
-                        "description": "Set to 'side' for a computed, verified flat side-on grasp - required before 'pour'/'thrust', which both expect the object to start out level and pointing outward. Omit for the default unconstrained grasp (fine for a plain pickup/dropoff/throw with no pour or thrust afterward)."
-                      },
-                      "orientation": {
-                        "allOf": [{ "$ref": "#/$defs/orientationName" }],
-                        "description": "Manual orientation override, ignored if 'grasp_style' is given. Forcing an orientation can make an otherwise-reachable approach unreachable for the planner, so omit unless specifically needed - and pair it with a matching 'grasp_offset', since an orientation that's valid at one point isn't necessarily valid at the object's exact center."
-                      },
-                      "grasp_offset": {
-                        "allOf": [{ "$ref": "#/$defs/graspOffset" }],
-                        "description": "Manual x/y/z shift off the object's center, ignored if 'grasp_style' is given. Only meaningful paired with an explicit manual 'orientation'."
-                      },
-                      "open_position": {
-                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
-                        "description": "Gripper position to open to before approaching. Defaults to 0.0 (open) if omitted."
-                      },
-                      "close_position": {
-                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
-                        "description": "Gripper position to close to once at the target. Defaults to 0.8 if omitted."
+                        "description": "Use 'side' when the object will be poured or thrust next, both need it held level. Use 'top' or 'side' when the command asks for that grasp. Otherwise omit it and let 'auto' choose."
                       }
                     },
                     "required": ["target"],
@@ -214,7 +184,7 @@
               },
               {
                 "type": "object",
-                "description": "Composite: move to the destination, release the gripper, and mark the held object placed.",
+                "description": "Composite: carry the held object over the spot, lower it with the same grasp it was picked up with, release it, and back away.",
                 "properties": {
                   "step_id": { "type": "integer", "minimum": 1 },
                   "action": { "const": "dropoff" },
@@ -224,21 +194,27 @@
                     "properties": {
                       "target": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "The object being placed. Optional - if the command doesn't name one, omit this and it refers to whatever object is currently held. Its height is used to compute a collision-safe release position, and its stored pose is updated once released."
+                        "description": "The object being placed. Optional - if the command doesn't name one, omit this and it refers to whatever object is currently held."
                       },
                       "destination": {
                         "allOf": [{ "$ref": "#/$defs/objectName" }],
-                        "description": "Where to place the object. Optional - if the command doesn't name a destination, omit this and the object is released right where it already is, not carried anywhere."
+                        "description": "Object to place it on top of, at the centre of its top. Optional - if the command doesn't name one, omit this and the object goes back where it was picked up."
+                      },
+                      "direction": {
+                        "allOf": [{ "$ref": "#/$defs/direction" }],
+                        "description": "Shifts the placing spot from the destination's centre (or from where it was picked up), relative to that spot's bearing from the arm's base: 'forward' moves it further from the arm, 'backward' closer to the arm, 'left'/'right' sideways. Optional, needs 'distance'. With a destination, the shifted spot must still be on top of it. To place a second object beside one already on the destination, use 'left'/'right' - 'forward'/'backward' lines them up with the arm, and the arm then has to reach over the first object."
+                      },
+                      "distance": {
+                        "allOf": [{ "$ref": "#/$defs/distance" }],
+                        "description": "How far to shift the placing spot along 'direction'. Required with 'direction', not used without it."
                       },
                       "place_offset": {
                         "allOf": [{ "$ref": "#/$defs/offset" }],
-                        "description": "Height added above the destination before releasing. Defaults to 0.1 if omitted."
-                      },
-                      "open_position": {
-                        "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
-                        "description": "Gripper position to release to. Defaults to 0.0 (open) if omitted."
+                        "maximum": 0.12,
+                        "description": "How high above the placing spot the arm hovers before lowering the object, at most 0.12 (higher hovers can be out of reach). The object is always lowered to just above the surface before it's released. Defaults to 0.05 if omitted; leave it out unless the command needs a higher approach."
                       }
                     },
+                    "dependentRequired": { "direction": ["distance"] },
                     "additionalProperties": false
                   }
                 },
@@ -265,7 +241,7 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to carry the object in, relative to its own original bearing from the arm, before tilting. Optional - alternative to 'destination', give at most one of the two. Requires 'distance' to be meaningful. If neither this nor 'destination' is given, the object is tilted right where it already is, with no horizontal move first."
+                        "description": "Direction to carry the object in, relative to its own original bearing from the arm, before tilting. Optional - alternative to 'destination', give at most one of the two. If neither this nor 'destination' is given, the object is tilted right where it already is, with no horizontal move first."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
@@ -273,7 +249,7 @@
                       },
                       "lift_height": {
                         "allOf": [{ "$ref": "#/$defs/liftHeight" }],
-                        "description": "How high to lift the object above its grasp height before carrying it toward the destination. Defaults to 0.14 if omitted."
+                        "description": "How high to lift the object above its current height before carrying it toward the destination. Defaults to 0.14 if omitted."
                       },
                       "tilt_angle": {
                         "allOf": [{ "$ref": "#/$defs/angleRadians" }],
@@ -312,11 +288,11 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to thrust the object in, relative to its own original resting bearing from the arm (from before it was picked up). Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
+                        "description": "Direction to thrust the object in, relative to its own original resting bearing from the arm (from before it was picked up). Alternative to 'destination' - give exactly one of the two."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
-                        "description": "Only used with 'direction'. Defaults to 0.4 if omitted - verified as close to the practical reach limit for a clean, collision-free swing (~77 degrees of shoulder motion); going noticeably further (0.5+) risks the motion becoming unreliable."
+                        "description": "Only used with 'direction'. If omitted, the furthest reachable distance is used."
                       },
                       "lift_height": {
                         "allOf": [{ "$ref": "#/$defs/liftHeight" }],
@@ -357,11 +333,11 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to push the object by, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful. Push only ever extends an object further from the arm's own base - it's not designed to drag one back in, so avoid 'backward' unless truly needed."
+                        "description": "Direction to push the object by, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Push only ever extends an object further from the arm's own base - it's not designed to drag one back in, so avoid 'backward' unless truly needed."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
-                        "description": "Only used with 'direction'. Defaults to 0.2 if omitted."
+                        "description": "Only used with 'direction'. If omitted, the furthest reachable distance is used."
                       },
                       "close_position": {
                         "allOf": [{ "$ref": "#/$defs/gripperPosition" }],
@@ -400,7 +376,7 @@
                       },
                       "direction": {
                         "allOf": [{ "$ref": "#/$defs/direction" }],
-                        "description": "Direction to throw the object in, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two. Requires 'distance' to be meaningful."
+                        "description": "Direction to throw the object in, relative to its own original bearing from the arm. Alternative to 'destination' - give exactly one of the two."
                       },
                       "distance": {
                         "allOf": [{ "$ref": "#/$defs/distance" }],
@@ -412,7 +388,7 @@
                       },
                       "speed": {
                         "allOf": [{ "$ref": "#/$defs/speedScale" }],
-                        "description": "Velocity/acceleration scale for the rotate/wind-up moves only - the fling itself always runs at full speed regardless of this value. Omit for the arm's configured default."
+                        "description": "Velocity/acceleration scale for the rotate, wind-up and fling moves. Without it, the fling runs at full speed."
                       }
                     },
                     "anyOf": [

@@ -20,6 +20,12 @@ type ResetEnvironmentMsg struct {
 	Err    error
 }
 
+// ScanMsg delivers the result of a POST /api/scan call, triggered by the /scan slash command.
+type ScanMsg struct {
+	Result *client.ScanResult
+	Err    error
+}
+
 // WSConnectedMsg signals that the /ws/client WebSocket connection to the
 // backend was established.
 type WSConnectedMsg struct{}
@@ -85,6 +91,11 @@ type NodeStatus struct {
 	State            int    `json:"state"`
 	StatusMessage    string `json:"status_message"`
 	LastCommandValid bool   `json:"last_command_valid"`
+}
+
+// CopyResultMsg delivers the result of a clipboard write triggered by /copy.
+type CopyResultMsg struct {
+	Err error
 }
 
 // Node/summary state values, matching ExtendedStatus/SystemSummary's

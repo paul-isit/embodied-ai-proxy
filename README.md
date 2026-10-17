@@ -1,6 +1,6 @@
 # Embodied AI Proxy
 
-A proxy layer for embodied AI systems leveraging ROS2 middleware. This project bridges high-level Large Language Models (LLMs) and robotic systems through a decoupled set of services: a Go API backend, a Go LLM proxy, a Go Bubble Tea terminal UI (TUI), and a Python ROS2 bridge client.
+A proxy layer for embodied AI systems leveraging ROS2 middleware. This project bridges high-level Large Language Models (LLMs) and robotic systems through a decoupled set of services: a Go API backend, a Go LLM proxy, and a Go Bubble Tea terminal UI (TUI). It doesn't need ROS2: it reaches the robot through the middleware's websocket bridge.
 
 ---
 
@@ -9,14 +9,12 @@ A proxy layer for embodied AI systems leveraging ROS2 middleware. This project b
 Before installing the proxy, ensure your host machine meets the following requirements:
 
 ### Software Requirements
-- **Operating System:** Ubuntu 22.04 LTS (or Linux / WSL2)
-- **ROS2:** Active installation of ROS2 Humble
-- **Go:** 1.22+ (for the Backend, LLM Proxy, and TUI)
-- **Python:** 3.10+ (for the ROS2 bridge client and the evaluation scripts)
+- **Operating System:** Linux, macOS or WSL2 (needs `bash`, plus `lsof` or `ss` for `run.sh`)
+- **Go:** 1.26.5+ (for the Backend, LLM Proxy, and TUI)
 - **Local Inference Engine (Optional):** An active installation of [Ollama](https://ollama.com/) if running local models (e.g. Gemma, Llama)
 
 ### Hardware Requirements
-The proxy allows interchangeable LLM APIs scaling to your hardware capacity:
+Only relevant when running a local model through Ollama:
 | Component | Requirement |
 | :--- | :--- |
 | **RAM** | 8GB minimum, 16GB+ recommended |
@@ -25,31 +23,7 @@ The proxy allows interchangeable LLM APIs scaling to your hardware capacity:
 | **Storage** | ≥15GB free space |
 
 ### External Dependency
-This application interacts with an external ROS2 Kinova Middleware repository (`ROS2-middleware`) or simulation environment.
-
----
-
-## Setup and Installation
-
-### 1. Install System Dependencies
-The bridge relies on ROS2 Humble and `rosbridge_suite` to handle WebSocket-to-ROS translation:
-```bash
-sudo apt-get update
-sudo apt-get install ros-humble-rosbridge-suite
-```
-
-### 2. Build the ROS2 Bridge Workspace
-```bash
-cd ros2_bridge_ws
-colcon build
-source install/setup.bash
-cd ..
-```
-
-### 3. Install Python Dependencies (Evaluation Suite)
-```bash
-pip install -r requirements.txt
-```
+This application drives the ROS2 Kinova middleware (`ROS2-middleware`), real or simulated. The middleware's launch also starts the `rosbridge_server` websocket (`ws://localhost:9090`) that the backend connects to, so ROS2 only needs to be installed where the middleware runs.
 
 ---
 
@@ -64,17 +38,21 @@ Use the [`run.sh`](run.sh) script to launch the LLM Proxy, Backend Server, and T
 # 2. Build binaries first, then run
 ./run.sh --build
 
-# 3. Headless Mode (starts Proxy + Backend only, useful for ROS2 testing & Python eval)
+# 3. Headless Mode (starts Proxy + Backend only, useful for ROS2 testing)
 ./run.sh --headless
 
-# 4. Build Only (compiles all Go binaries to bin/ and exits)
+# 4. Evaluate the configured LLM against JSON test suites (Proxy only, no robot needed).
+#    --eval must be the last option.
+./run.sh --eval tests/*.json
+
+# 5. Build Only (compiles all Go binaries to bin/ and exits)
 ./run.sh --build-only
 
-# 5. Clean (removes compiled binaries and log files)
+# 6. Clean (removes compiled binaries and log files)
 ./run.sh --clean
 ```
 
-> **Note:** When running `./run.sh`, quitting the TUI (`Ctrl+C` or `q`) automatically terminates the background `backend` and `llm-proxy` processes gracefully.
+> **Note:** When running `./run.sh`, quitting the TUI (`Ctrl+C`) stops the background `backend` and `llm-proxy` processes. `-b` and `-s` are short for `--build` and `--headless`.
 
 ---
 
@@ -124,16 +102,9 @@ source /path/to/your/workspace/ros2_kortex_ws/install/setup.bash
 ros2 launch kinova_interface robot.launch.py
 ```
 
-### 2. Start the ROS2 Rosbridge Server
-```bash
-source /opt/ros/humble/setup.bash
-source /path/to/your/workspace/ros2_kortex_ws/install/setup.bash
-cd ros2_bridge_ws
-source install/setup.bash
-ros2 launch custom_bridge_pkg proxy_bridge.launch.py
-```
+This also starts the `rosbridge_server` websocket on `ws://localhost:9090` once the middleware is up. If you change its port (`bridge_port:=<port>`), set `rosbridge_url` in `data/config/config.json` to match.
 
-### 3. Start the Proxy/Backend with the TUI
+### 2. Start the Proxy/Backend with the TUI
 ```bash
 # if building and running for the first time
 ./run.sh --build
@@ -153,7 +124,9 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 {
   "server": {
     "port": 8080,
-    "proxy_url": "http://localhost:8081"
+    "proxy_url": "http://localhost:8081",
+    "rosbridge_url": "ws://localhost:9090",
+    "execution_timeout_seconds": 300
   },
   "proxy": {
     "port": 8081,
@@ -169,6 +142,8 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
   }
 }
 ```
+
+Missing keys fall back to the defaults shown. The `port` values are informational: the services listen on their `-httpPort` flag (default 8080 and 8081), so change `proxy_url` too if you change the proxy's port. API keys are only read from this file, so don't commit real keys.
 
 ### Supported Providers
 1. **Ollama** (Local or remote endpoint)
@@ -195,7 +170,7 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 ```json
 {
   "provider": "gemini",
-  "model": "gemini-1.5-flash",
+  "model": "gemini-2.5-flash",
   "base_url": "https://generativelanguage.googleapis.com/v1beta/models",
   "api_key": "YOUR_GEMINI_API_KEY",
   "max_tokens": 1024,
@@ -221,7 +196,7 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 ```json
 {
   "provider": "anthropic",
-  "model": "claude-3-5-sonnet-20241022",
+  "model": "claude-sonnet-5-5",
   "base_url": "https://api.anthropic.com/v1/messages",
   "api_key": "YOUR_ANTHROPIC_API_KEY",
   "max_tokens": 1024,
@@ -235,15 +210,17 @@ The backend and the LLM proxy share **one unified configuration file** at `data/
 ## System Architecture
 
 ```text
-User Input (TUI over WebSocket /ws/client or HTTP POST /api/prompt)
+User Input (TUI over WebSocket /ws/client, or test suites via backend -eval)
             ↓
-Prompt Synthesis (Go Backend: system prompt + schema + environment objects + command)
+Environment refresh (objects, movements, orientations, table bounds from /get_robot_parameters)
+            ↓
+Prompt Synthesis (Go Backend: system prompt + schema + environment + command)
             ↓
 LLM Dispatch (Go LLM Proxy -> Ollama / OpenAI / Anthropic / Gemini)
             ↓
-Structured JSON Action Recipe
+Schema Validation (Go Backend, data/config/json_schema.json)
             ↓
-Schema Validation Layer (Go Backend, data/config/json_schema.json)
+Name Resolution (fuzzy-match object names; one LLM retry if an object is missing)
             ↓
 Direct ROS2 Rosbridge Client (Go Backend -> ws://localhost:9090 /execute_recipe)
             ↓
@@ -254,17 +231,16 @@ ROS2 Middleware Execution Layer (Kinova Gen3 Lite)
 
 1. **Go Backend** (`backend/`):
    - Owns application state, environment object registry, and WebSocket client hub (`/ws/client`).
-   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying environment objects (`/get_robot_parameters`), listening to telemetry (`/system/status`), and executing action recipes (`/execute_recipe`).
-   - Uses `internal/pipeline` to build prompts, query the LLM proxy, validate output against `data/config/json_schema.json`, and dispatch action recipes.
-   - Exposes `GET /api/info` (live stats, configuration, prompt) and `POST /api/prompt` (synchronous evaluation API).
+   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying the environment (`/get_robot_parameters`), listening to telemetry (`/system/status`), executing recipes (`/execute_recipe`), resetting objects (`/reset_environment`) and triggering camera scans (`/vision/snapshot`, needs the middleware's `enable_CV:=true`).
+   - Uses `internal/pipeline` to build prompts, query the LLM proxy, validate output against `data/config/json_schema.json`, resolve names, and dispatch action recipes.
+   - Accepts one TUI client at a time.
+   - Exposes `GET /api/info` (live stats, configuration, prompt), `POST /api/reset` and `POST /api/scan`.
 2. **Go LLM Proxy** (`llm-proxy/`):
-   - Standalone microservice abstracting provider APIs behind `POST /generate` with configurable timeouts and retries.
+   - Standalone microservice abstracting provider APIs behind `POST /generate`, with a configurable timeout and one retry on transient errors.
 3. **Go Terminal UI** (`tui/`):
-   - Interactive Bubble Tea / Lip Gloss terminal interface connecting to the backend over WebSocket (`/ws/client`).
-4. **ROS2 Bridge Workspace** (`ros2_bridge_ws/`):
-   - Standard ROS2 package launching `rosbridge_server` WebSocket endpoint (`ws://localhost:9090`).
-5. **Evaluation Suite** (`evaluate_proxy.py` + `tests/*.yaml`):
-   - Batch test runner that queries `POST /api/prompt` directly against YAML-defined test cases without needing a live robot.
+   - Interactive Bubble Tea / Lip Gloss terminal interface connecting to the backend over WebSocket (`/ws/client`). Type `/help` for its commands, including `/reset-env`, `/scan`, `/save` and `/copy`.
+4. **Evaluation Suite** (`backend -eval` + `tests/*.json`):
+   - Runs each test prompt through the real pipeline in-process (LLM call, schema validation, name resolution, retry) and checks the result against the expected outcomes, without needing a live robot.
 
 ---
 
@@ -274,20 +250,20 @@ ROS2 Middleware Execution Layer (Kinova Gen3 Lite)
 embodied-ai-proxy/
 ├── run.sh                           # Unified build & run automation script
 ├── go.work                          # Multi-module Go workspace
-├── evaluate_proxy.py                # Batch evaluation framework (YAML based)
-├── requirements.txt                 # Python dependencies for evaluate_proxy.py
 │
 ├── data/                            # Shared runtime data
 │   ├── config/config.json           # Single unified configuration file
 │   ├── config/json_schema.json      # JSON Schema for action recipe validation
 │   ├── config/system_prompt.md      # System prompt template
-│   └── logs/                        # Service logs (server.log, proxy.log, tui.log)
+│   └── logs/                        # Created at runtime: service logs and /save sessions
 │
 ├── backend/                         # Go Backend Service
-│   ├── cmd/server/main.go           # Server entrypoint
+│   ├── cmd/server/main.go           # Server entrypoint (-eval runs test suites instead)
 │   └── internal/
-│       ├── api/                     # REST handlers (GET /api/info, POST /api/prompt)
-│       ├── pipeline/                # Prompt synthesis, LLM dispatch, schema validation
+│       ├── api/                     # REST handlers (GET /api/info, POST /api/reset, POST /api/scan)
+│       ├── eval/                    # Test suite runner for -eval
+│       ├── matcher/                 # Fuzzy object-name matching
+│       ├── pipeline/                # Prompt synthesis, LLM dispatch, validation, name resolution, retry
 │       ├── rosbridge/               # Direct ROS 2 rosbridge WebSocket client
 │       ├── validator/               # jsonschema/v5 validator engine
 │       ├── websocket/               # Hub for /ws/client
@@ -312,34 +288,70 @@ embodied-ai-proxy/
 │   ├── logging/                     # Dual-output logging (stdout + file)
 │   └── httpserver/                  # Graceful shutdown HTTP server
 │
-├── ros2_bridge_ws/                  # ROS 2 Humble Workspace
-│   └── src/custom_bridge_pkg/       # ROS 2 package launching rosbridge_server
-│
-└── tests/                           # YAML test suites for evaluate_proxy.py
-    ├── basic_tests.yaml
-    └── test_cases.yaml
+└── tests/                           # JSON test suites for -eval
+    └── basic.json
 ```
 
 ---
 
-## Batch Evaluation with YAML Test Suites
+## Evaluating an LLM with Test Suites
 
-Start the backend and proxy in headless mode:
+A test suite checks whether the configured LLM turns prompts into correct recipes. Each prompt goes through the same pipeline as a real command (JSON extraction, schema validation, name resolution, missing-object retry), using the suite's environment instead of the robot's:
+
 ```bash
-./run.sh --headless
+./run.sh --build --eval tests/*.json           # starts the LLM proxy, runs the suites, exits 1 if any case fails
+bin/backend -dataDir data -eval tests/basic.json   # same, if the proxy is already running
 ```
 
-In another terminal, run the evaluation scripts:
-```bash
-python3 evaluate_proxy.py --api-url http://localhost:8080 --tests ./tests/basic_tests.yaml
-python3 evaluate_proxy.py --api-url http://localhost:8080 --tests ./tests/test_cases.yaml
+A suite is a JSON file:
+
+```json
+{
+  "environment": {
+    "objects": ["blue_cube", "delivery_tray"],
+    "movements": ["move_upwards"],
+    "orientations": ["top_down"],
+    "table_bounds": { "available": true, "x_min": 0.2, "x_max": 0.8, "y_min": -0.4, "y_max": 0.4 }
+  },
+  "cases": [
+    {
+      "name": "pick and place",
+      "prompt": "put the blue cube on the tray",
+      "expect": [
+        { "status": "success", "steps": [
+          { "action": "pickup", "parameters": { "target": "blue_cube" } },
+          { "action": "dropoff", "parameters": { "destination": "delivery_tray" } },
+          { "action": "home" }
+        ]}
+      ]
+    }
+  ]
+}
 ```
+
+- A case fails if the pipeline can't produce a schema-valid result. With no `expect`, that's the only check.
+- `expect` lists acceptable outcomes. The case passes if **any one** matches.
+- Matching is partial: only the keys you write are checked (`step_id`, `description`, `recipe_name` etc. can be left out), and `null` means "this key must be absent". `steps` must match in order and in number.
+- Expectations are checked after name resolution, so `"blu cube"` → `"blue_cube"` counts as correct.
+- A case can set its own `environment`, which replaces the suite's for that case.
+
+Full prompts and LLM responses are logged to `data/logs/eval.log`.
 
 ---
 
 ## Logging & Auditing
 
-Logs are written simultaneously to standard output and persisted under `data/logs/`:
-- `data/logs/server.log` - Go Backend logs (WebSocket events, pipeline execution, schema validation)
-- `data/logs/proxy.log` - LLM Proxy logs (HTTP request/response timings, provider errors)
-- `data/logs/tui.log` - TUI debug logs
+Logs are written under `data/logs/`. The backend and LLM proxy also log to stdout when run by hand; `run.sh` discards their stdout.
+- `server.log` - Go Backend logs (WebSocket events, pipeline execution, schema validation)
+- `proxy.log` - LLM Proxy logs (HTTP request/response timings, provider errors)
+- `tui.log` - TUI debug logs
+- `eval.log` - full prompts and responses from `-eval`
+- `session_<timestamp>.txt` - sessions saved with the TUI's `/save`
+
+`./run.sh --clean` deletes all of them.
+
+---
+
+## License
+
+Apache 2.0. See [LICENSE](LICENSE).

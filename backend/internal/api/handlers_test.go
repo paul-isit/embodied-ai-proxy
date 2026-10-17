@@ -1,9 +1,9 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"embodied-ai-proxy/backend/internal/pipeline"
+	"embodied-ai-proxy/backend/internal/rosbridge"
 	"embodied-ai-proxy/backend/internal/validator"
 	"embodied-ai-proxy/backend/internal/websocket"
 	sharedconfig "embodied-ai-proxy/shared/config"
@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -50,6 +51,7 @@ func TestInfoHandler_ReportsServerProxyAndHubState(t *testing.T) {
 			LLMConfig: sharedconfig.LLMConfig{
 				Provider: "ollama",
 				Model:    "gemma3:1b",
+				APIKey:   "secret-key",
 			},
 		},
 	}
@@ -68,6 +70,12 @@ func TestInfoHandler_ReportsServerProxyAndHubState(t *testing.T) {
 	}
 	if got.Server.Port != 8080 || got.LLM.Provider != "ollama" || got.LLM.Model != "gemma3:1b" {
 		t.Errorf("unexpected response: %+v", got)
+	}
+	if got.LLM.APIKey != "" {
+		t.Errorf("api_key leaked in response: %q", got.LLM.APIKey)
+	}
+	if cfg.Proxy.LLMConfig.APIKey != "secret-key" {
+		t.Error("handler must not clear the key in the shared config")
 	}
 	if got.BridgeConnected {
 		t.Error("expected bridge_connected=false with no bridge dialed")
@@ -138,60 +146,67 @@ func TestResetHandler_WrongMethod(t *testing.T) {
 	}
 }
 
-func TestPromptHandler_Success(t *testing.T) {
-	p := testPipeline(t, `{"status":"success","recipe_name":"t","steps":[{"step_id":1,"action":"home","description":"d","parameters":{}}]}`)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt", bytes.NewBufferString(`{"prompt":"go home","available_objects":["red_cube"]}`))
-	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
-	}
-	var got pipeline.Result
-	json.NewDecoder(w.Body).Decode(&got)
-	if got.Error != "" || got.Parsed == nil {
-		t.Errorf("unexpected result: %+v", got)
-	}
+type fakeScanner struct {
+	refreshes [][]string // object names returned by each refresh, in order
+	message   string
+	err       error
 }
 
-func TestPromptHandler_MissingPrompt(t *testing.T) {
-	p := testPipeline(t, `{}`)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt", bytes.NewBufferString(`{}`))
-	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
-	}
+func (f *fakeScanner) RefreshEnvironmentParams(ctx context.Context) (rosbridge.EnvironmentParams, error) {
+	objects := f.refreshes[0]
+	f.refreshes = f.refreshes[1:]
+	return rosbridge.EnvironmentParams{Objects: objects}, nil
 }
 
-func TestPromptHandler_WrongMethod(t *testing.T) {
-	p := testPipeline(t, `{}`)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/prompt", nil)
-	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", w.Code)
-	}
+func (f *fakeScanner) Snapshot(ctx context.Context) (string, error) {
+	return f.message, f.err
 }
 
-func TestPromptHandler_InvalidRecipeStillReturns200WithError(t *testing.T) {
-	p := testPipeline(t, `{"status":"success","steps":[]}`) // missing recipe_name
-
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt", bytes.NewBufferString(`{"prompt":"go home"}`))
+func scan(t *testing.T, rb scanner) scanResponse {
+	t.Helper()
 	w := httptest.NewRecorder()
-	PromptHandler(p)(w, req)
-
+	ScanHandler(rb)(w, httptest.NewRequest(http.MethodPost, "/api/scan", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	var got pipeline.Result
-	json.NewDecoder(w.Body).Decode(&got)
-	if got.Error == "" {
-		t.Error("expected schema validation error in result")
+	var got scanResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return got
+}
+
+func TestScanHandler_ReportsAddedAndRemoved(t *testing.T) {
+	rb := &fakeScanner{
+		refreshes: [][]string{{"blue_cube", "red_bottle"}, {"blue_cube", "green_cup", "red_object"}},
+		message:   "Scene updated: 2 added, 1 updated, 1 removed, 3 total",
+	}
+
+	got := scan(t, rb)
+
+	if !got.Success || got.Message != rb.message {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+	if !slices.Equal(got.Added, []string{"green_cup", "red_object"}) || !slices.Equal(got.Removed, []string{"red_bottle"}) || got.Unchanged != 1 {
+		t.Errorf("added %v, removed %v, unchanged %d; want [green_cup red_object], [red_bottle], 1", got.Added, got.Removed, got.Unchanged)
+	}
+}
+
+func TestScanHandler_SnapshotFailure(t *testing.T) {
+	rb := &fakeScanner{refreshes: [][]string{{"blue_cube"}}, err: errors.New("call /vision/snapshot (is the vision node running?): service does not exist")}
+
+	got := scan(t, rb)
+
+	if got.Success || got.Message != rb.err.Error() {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestScanHandler_WrongMethod(t *testing.T) {
+	w := httptest.NewRecorder()
+	ScanHandler(&fakeScanner{})(w, httptest.NewRequest(http.MethodGet, "/api/scan", nil))
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", w.Code)
 	}
 }

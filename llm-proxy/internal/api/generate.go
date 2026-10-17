@@ -30,8 +30,7 @@ type generateResponsePayload struct {
 }
 
 // GenerateHandler exposes rt over HTTP as POST /generate - the network
-// boundary the Go backend dispatches prompts across (see design.md's
-// "HTTP / gRPC Internal Dispatch" between backend and LLM proxy).
+// boundary the Go backend dispatches prompts across.
 func GenerateHandler(rt *router.Router) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

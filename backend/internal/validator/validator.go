@@ -9,7 +9,7 @@ import (
 )
 
 // Validator checks LLM-generated action recipes against the shared
-// configs/json_schema.json contract (the same schema used to prompt the
+// data/config/json_schema.json contract (the same schema used to prompt the
 // LLM in the first place).
 type Validator struct {
 	schema *jsonschema.Schema

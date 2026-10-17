@@ -15,6 +15,18 @@ import (
 // and points the standard logger at both it and stdout. The returned Closer
 // should be closed on shutdown; no log rotation is performed.
 func Setup(dataDir, name string) (io.Closer, error) {
+	file, err := Open(dataDir, name)
+	if err != nil {
+		return nil, err
+	}
+	log.SetOutput(io.MultiWriter(os.Stdout, file))
+	log.Printf("logging to %s", file.Name())
+	return file, nil
+}
+
+// Open opens <dataDir>/logs/<name>.log for appending, creating the
+// directory if needed. Unlike Setup, it leaves the standard logger alone.
+func Open(dataDir, name string) (*os.File, error) {
 	dir := filepath.Join(dataDir, "logs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create log directory %s: %w", dir, err)
@@ -25,8 +37,5 @@ func Setup(dataDir, name string) (io.Closer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open log file %s: %w", path, err)
 	}
-
-	log.SetOutput(io.MultiWriter(os.Stdout, file))
-	log.Printf("logging to %s", path)
 	return file, nil
 }

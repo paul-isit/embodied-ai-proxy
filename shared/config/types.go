@@ -14,6 +14,8 @@ type ServerConfig struct {
 	Port         int    `json:"port"`
 	ProxyURL     string `json:"proxy_url"`
 	RosbridgeURL string `json:"rosbridge_url"`
+	// How long to wait for the robot to finish a recipe before giving up
+	ExecutionTimeoutSeconds int `json:"execution_timeout_seconds"`
 }
 
 // LLMConfig holds settings for the upstream LLM provider the proxy talks to.
@@ -21,7 +23,7 @@ type LLMConfig struct {
 	Provider       string  `json:"provider"`
 	Model          string  `json:"model"`
 	BaseURL        string  `json:"base_url"`
-	APIKey         string  `json:"api_key"` // TODO: support environment-variable override before any shared/production deployment (see design.md Risks/Trade-offs)
+	APIKey         string  `json:"api_key"` // TODO: support environment-variable override before any shared/production deployment
 	MaxTokens      int     `json:"max_tokens"`
 	Temperature    float64 `json:"temperature"`
 	TimeoutSeconds int     `json:"timeout_seconds"`
@@ -44,9 +46,10 @@ type AppConfig struct {
 func defaultAppConfig() AppConfig {
 	return AppConfig{
 		Server: ServerConfig{
-			Port:         DefaultServerPort,
-			ProxyURL:     DefaultProxyURL,
-			RosbridgeURL: DefaultRosbridgeURL,
+			Port:                    DefaultServerPort,
+			ProxyURL:                DefaultProxyURL,
+			RosbridgeURL:            DefaultRosbridgeURL,
+			ExecutionTimeoutSeconds: DefaultExecutionTimeoutSeconds,
 		},
 		Proxy: ProxyConfig{
 			Port: DefaultProxyPort,

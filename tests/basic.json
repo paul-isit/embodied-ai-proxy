@@ -1,0 +1,88 @@
+{
+  "environment": {
+    "objects": ["water_bottle", "push_block", "blue_cube", "delivery_tray"],
+    "movements": ["move_upwards", "move_downwards", "move_left", "move_right", "thrust_forward", "retreat"],
+    "orientations": ["top_down", "top_down_90", "side_level"]
+  },
+  "cases": [
+    {
+      "name": "go home",
+      "prompt": "go home",
+      "expect": [
+        { "status": "success", "steps": [{ "action": "home" }] }
+      ]
+    },
+    {
+      "name": "pick and place",
+      "prompt": "pick up the blue cube and put it on the delivery tray",
+      "expect": [
+        { "status": "success", "steps": [
+          { "action": "home" },
+          { "action": "pickup", "parameters": { "target": "blue_cube" } },
+          { "action": "dropoff", "parameters": { "destination": "delivery_tray" } },
+          { "action": "home" }
+        ]},
+        { "status": "success", "steps": [
+          { "action": "pickup", "parameters": { "target": "blue_cube" } },
+          { "action": "dropoff", "parameters": { "destination": "delivery_tray" } },
+          { "action": "home" }
+        ]}
+      ]
+    },
+    {
+      "name": "typo in object name",
+      "prompt": "pick up the blu cube",
+      "expect": [
+        { "status": "success", "steps": [{ "action": "home" }, { "action": "pickup", "parameters": { "target": "blue_cube" } }] },
+        { "status": "success", "steps": [{ "action": "pickup", "parameters": { "target": "blue_cube" } }] }
+      ]
+    },
+    {
+      "name": "push in a direction",
+      "prompt": "push the block forward",
+      "expect": [
+        { "status": "success", "steps": [
+          { "action": "home" },
+          { "action": "push", "parameters": { "target": "push_block", "direction": "forward" } },
+          { "action": "home" }
+        ]},
+        { "status": "success", "steps": [
+          { "action": "push", "parameters": { "target": "push_block", "direction": "forward" } },
+          { "action": "home" }
+        ]}
+      ]
+    },
+    {
+      "name": "orientation on move_arm",
+      "prompt": "move to the water bottle pointing straight down",
+      "expect": [
+        { "status": "success", "steps": [
+          { "action": "home" },
+          { "action": "move_arm", "parameters": { "target": "water_bottle", "orientation": "top_down" } }
+        ]},
+        { "status": "success", "steps": [
+          { "action": "move_arm", "parameters": { "target": "water_bottle", "orientation": "top_down" } }
+        ]}
+      ]
+    },
+    {
+      "name": "relative move without orientation",
+      "prompt": "lift the arm up a bit",
+      "expect": [
+        { "status": "success", "steps": [{ "action": "relative_move", "parameters": { "vector": "move_upwards", "orientation": null } }] },
+        { "status": "success", "steps": [{ "action": "relative_move", "parameters": { "vector": "move_upwards", "orientation": null } }, { "action": "home" }] }
+      ]
+    },
+    {
+      "name": "unknown object",
+      "prompt": "pick up the red sphere",
+      "expect": [
+        { "status": "error", "error_type": "missing_object" }
+      ]
+    },
+    {
+      "name": "free-form command is schema-valid",
+      "prompt": "wave hello"
+    }
+  ]
+}

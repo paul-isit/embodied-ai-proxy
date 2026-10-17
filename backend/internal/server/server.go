@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // jsonSchemaFileName and systemPromptFileName are the two backend-specific
@@ -35,9 +36,11 @@ type ApplicationArgs struct {
 // AppServer is the backend HTTP server: owns the route mux and the
 // rosbridge client used to talk to the ROS 2 middleware.
 type AppServer struct {
-	args ApplicationArgs
-	mux  *http.ServeMux
-	rb   *rosbridge.Client
+	args           ApplicationArgs
+	mux            *http.ServeMux
+	rb             *rosbridge.Client
+	promptPipeline *pipeline.Pipeline
+	llmConfig      sharedconfig.LLMConfig
 }
 
 // New builds an AppServer from args, loading its config, JSON schema, and
@@ -91,16 +94,19 @@ func (server *AppServer) initialize() error {
 	server.rb = rb
 
 	p := pipeline.New(hub, rb, validtr, appConfig.Server.ProxyURL, systemPrompt, schemaRaw)
+	p.ExecutionTimeout = time.Duration(appConfig.Server.ExecutionTimeoutSeconds) * time.Second
 	hub.SetPromptHandler(p)
+	server.promptPipeline = p
+	server.llmConfig = appConfig.Proxy.LLMConfig
 
 	log.Printf("[Server] Registering route: GET /ws/client")
 	server.mux.HandleFunc("/ws/client", hub.ServeClient)
-	log.Printf("[Server] Registering route: POST /api/prompt")
-	server.mux.HandleFunc("/api/prompt", api.PromptHandler(p))
 	log.Printf("[Server] Registering route: GET /api/info")
 	server.mux.HandleFunc("/api/info", api.InfoHandler(appConfig, hub, p))
 	log.Printf("[Server] Registering route: POST /api/reset")
 	server.mux.HandleFunc("/api/reset", api.ResetHandler(rb))
+	log.Printf("[Server] Registering route: POST /api/scan")
+	server.mux.HandleFunc("/api/scan", api.ScanHandler(rb))
 
 	return nil
 }
@@ -119,6 +125,16 @@ func (server *AppServer) initialize() error {
 //
 //	return nil
 //}
+
+// Pipeline returns the prompt pipeline.
+func (server *AppServer) Pipeline() *pipeline.Pipeline {
+	return server.promptPipeline
+}
+
+// LLMConfig returns the LLM the proxy is configured to use.
+func (server *AppServer) LLMConfig() sharedconfig.LLMConfig {
+	return server.llmConfig
+}
 
 // Start connects the rosbridge client and runs the HTTP server, blocking
 // until ctx is cancelled or the server fails.

@@ -130,7 +130,7 @@ func (h *Hub) OnTelemetry(msg json.RawMessage) {
 	h.SendToClient(Envelope{Type: TypeStatusUpdate, Payload: payload})
 }
 
-// ServeClient upgrades r to a WebSocket and registers it as the TUI/eval
+// ServeClient upgrades r to a WebSocket and registers it as the TUI
 // client connection for the lifetime of the connection. If a client is
 // already connected, the request is refused with 409 Conflict rather than
 // replacing the existing connection.
