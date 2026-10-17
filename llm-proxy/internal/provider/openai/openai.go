@@ -42,11 +42,20 @@ type message struct {
 	Content string `json:"content"`
 }
 
+// responseFormat asks for JSON-only output, as the Ollama adapter does with
+// format "json". Supported by OpenAI and OpenAI-compatible servers (vLLM,
+// llama.cpp, hf-server). OpenAI rejects it unless "json" appears in the
+// messages; the system prompt (backend/internal/pipeline/prompt.go) has it.
+type responseFormat struct {
+	Type string `json:"type"`
+}
+
 type chatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []message `json:"messages"`
-	MaxTokens   int       `json:"max_tokens"`
-	Temperature float64   `json:"temperature"`
+	Model          string         `json:"model"`
+	Messages       []message      `json:"messages"`
+	MaxTokens      int            `json:"max_tokens"`
+	Temperature    float64        `json:"temperature"`
+	ResponseFormat responseFormat `json:"response_format"`
 }
 
 type chatResponse struct {
@@ -66,10 +75,11 @@ func (a *Adapter) Generate(ctx context.Context, req provider.Request) (provider.
 	messages = append(messages, message{Role: "user", Content: req.Prompt})
 
 	body, err := json.Marshal(chatRequest{
-		Model:       a.model,
-		Messages:    messages,
-		MaxTokens:   maxTokens,
-		Temperature: temperature,
+		Model:          a.model,
+		Messages:       messages,
+		MaxTokens:      maxTokens,
+		Temperature:    temperature,
+		ResponseFormat: responseFormat{Type: "json_object"},
 	})
 	if err != nil {
 		return provider.Response{}, fmt.Errorf("openai: encode request: %w", err)

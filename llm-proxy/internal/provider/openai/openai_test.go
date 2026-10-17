@@ -46,6 +46,9 @@ func TestAdapter_Generate_Success(t *testing.T) {
 	if len(gotReq.Messages) != 2 || gotReq.Messages[0].Role != "system" || gotReq.Messages[1].Content != "hello" {
 		t.Errorf("unexpected messages sent: %+v", gotReq.Messages)
 	}
+	if gotReq.ResponseFormat.Type != "json_object" {
+		t.Errorf("response_format = %+v, want json_object", gotReq.ResponseFormat)
+	}
 }
 
 func TestAdapter_Generate_Timeout(t *testing.T) {

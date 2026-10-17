@@ -12,6 +12,7 @@ Before installing the proxy, ensure your host machine meets the following requir
 - **Operating System:** Linux, macOS or WSL2 (needs `bash`, plus `lsof` or `ss` for `run.sh`)
 - **Go:** 1.26.5+ (for the Backend, LLM Proxy, and TUI)
 - **Local Inference Engine (Optional):** An active installation of [Ollama](https://ollama.com/) if running local models (e.g. Gemma, Llama)
+- **Python 3.10+ (Optional):** only for serving your own Hugging Face model (see [Bring Your Own Model](#bring-your-own-model))
 
 ### Hardware Requirements
 Only relevant when running a local model through Ollama:
@@ -148,7 +149,7 @@ Missing keys fall back to the defaults shown. The `port` values are informationa
 ### Supported Providers
 1. **Ollama** (Local or remote endpoint)
 2. **Google Gemini** (API key)
-3. **OpenAI** (API key)
+3. **OpenAI** (API key), or any OpenAI-compatible server, including your own Hugging Face model (see [Bring Your Own Model](#bring-your-own-model))
 4. **Anthropic** (API key)
 
 ### Provider Configuration Examples
@@ -204,6 +205,70 @@ Missing keys fall back to the defaults shown. The `port` values are informationa
   "timeout_seconds": 30
 }
 ```
+
+---
+
+## Bring Your Own Model
+
+Any Hugging Face text model (a Hub ID like `Qwen/Qwen2.5-1.5B-Instruct`, or a local checkpoint folder from your own training) can be plugged in without converting it. Run it behind an OpenAI-compatible server, then point the proxy at it with the `openai` provider. The Go services don't change.
+
+| Your machine | Use |
+| :--- | :--- |
+| Linux (or WSL2) with an NVIDIA GPU | [vLLM](https://docs.vllm.ai): fast, the standard choice |
+| Mac, CPU-only, or a model vLLM can't load | `hf-server/serve.py`: a small fallback built on `transformers` that runs anywhere PyTorch runs |
+
+The model must be an instruction/chat model (it needs a chat template). Raw base models aren't supported.
+
+### Option 1: vLLM
+
+```bash
+pip install vllm
+vllm serve Qwen/Qwen2.5-1.5B-Instruct --port 8000
+# or your own checkpoint:
+vllm serve /path/to/checkpoint --served-model-name my-model --port 8000
+```
+
+- vLLM reserves 90% of GPU memory by default; lower it with `--gpu-memory-utilization 0.6`.
+- If it runs out of memory at startup, cap the context with `--max-model-len 4096`.
+- LoRA adapters: `--enable-lora --lora-modules my-lora=/path/to/adapter`, then use `my-lora` as the `model`.
+- Gated Hub models need `HF_TOKEN` set.
+
+### Option 2: hf-server (fallback)
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r hf-server/requirements.txt
+python hf-server/serve.py Qwen/Qwen2.5-1.5B-Instruct --port 8000
+```
+
+- `--device auto` (the default) picks CUDA, then Apple MPS, then CPU.
+- `--trust-remote-code` lets checkpoints that ship custom model code load.
+- `--host 0.0.0.0` accepts connections from other machines, e.g. a Linux VM talking to the server on its Mac host. The default `127.0.0.1` is local only.
+- **There is no authentication.** Anyone who can reach the port can use your model and hardware, and the server handles one request at a time, so one bad client can block it. Don't expose it on a shared network: bind `--host` to the VM's host-only/bridge interface address instead of `0.0.0.0`, or keep the default and use an SSH tunnel (`ssh -L 8000:localhost:8000 <server-host>`).
+- LoRA adapters: merge them into the base model first (`peft`'s `merge_and_unload()`, then `save_pretrained`), and serve the merged folder.
+- It handles one request at a time and is much slower than vLLM, which is fine for testing and evaluation.
+- It rejects `max_tokens` above 4096 and request bodies over 1 MiB (`MAX_TOKENS_LIMIT` / `MAX_BODY_BYTES` in `serve.py`).
+
+### Pointing the proxy at it
+
+```json
+{
+  "provider": "openai",
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "base_url": "http://localhost:8000/v1/chat/completions",
+  "api_key": "",
+  "max_tokens": 1024,
+  "temperature": 0,
+  "timeout_seconds": 120
+}
+```
+
+- `model` must match what vLLM serves (its `--served-model-name`, or the ID/path). `hf-server` ignores it.
+- Raise `timeout_seconds` for big models or CPU inference, or requests will time out.
+- `temperature: 0` gives deterministic (greedy) output, which is useful for reproducible evaluation.
+- If the server runs on another machine, use its address in `base_url`.
+
+Then run `./run.sh --eval tests/*.json` to see how well the model does (see [Evaluating an LLM with Test Suites](#evaluating-an-llm-with-test-suites)).
 
 ---
 
@@ -282,6 +347,10 @@ embodied-ai-proxy/
 │   └── internal/
 │       ├── app/                     # Model, Update, View, styles
 │       └── client/                  # WebSocket client & API client
+│
+├── hf-server/                       # Optional Python fallback server for Hugging Face models
+│   ├── serve.py                     # OpenAI-compatible /v1/chat/completions over transformers
+│   └── test_serve.py                # cd hf-server && python -m unittest (no model needed)
 │
 ├── shared/                          # Shared Go Packages
 │   ├── config/                      # Unified config loader
