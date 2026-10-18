@@ -1,0 +1,68 @@
+# Hold-out cases: never used while tuning the prompt, only to check that changes
+# made against cases.yaml generalise. Same format as cases.yaml.
+
+defaults:
+  objects: [water_bottle, tea_pot, blue_cube, delivery_tray]
+  movements: [move_upwards, move_downwards, move_left, move_right, thrust_forward, retreat]
+  orientations: [top_down, top_down_90, side_level]
+  table_bounds: {available: true, x_min: -0.7, x_max: 0.7, y_min: -0.7, y_max: 0.7}
+  held: []
+
+cases:
+  - {id: o01, category: basic, prompt: "Return to the starting position",
+     expect: {status: success, actions: [home]}}
+  - {id: o02, category: basic, prompt: "Lower the arm a little",
+     expect: {status: success, actions: [relative_move], params: [{vector: move_downwards}]}}
+  - {id: o03, category: basic, prompt: "Release the gripper fully",
+     expect: {status: success, actions: [gripper], params: [{position: "<0.2"}]}}
+  - {id: o04, category: basic, prompt: "Go to the water bottle and then move right",
+     expect: {status: success, actions: [move_arm, relative_move],
+              params: [{target: water_bottle}, {vector: move_right}]}}
+  - {id: o05, category: pick_place, prompt: "Lift the blue cube off the table",
+     expect: {status: success, actions: [[pickup], [pickup, relative_move]], params: [{target: blue_cube}],
+              no_trailing_home: true}}
+  - {id: o06, category: pick_place, prompt: "Take the water bottle and drop it onto the delivery tray",
+     expect: {status: success, actions: [pickup, dropoff],
+              params: [{target: water_bottle}, {destination: delivery_tray}]}}
+  - {id: o07, category: pick_place, prompt: "Grab the tea pot from above and put it on the right side of the tray",
+     expect: {status: success, actions: [pickup, dropoff],
+              params: [{target: tea_pot, grasp_style: top}, {destination: delivery_tray, direction: right}]}}
+  - {id: o08, category: pick_place, prompt: "Pick up the blue cube and keep holding it",
+     expect: {status: success, actions: [pickup], params: [{target: blue_cube}], no_trailing_home: true}}
+  - {id: o09, category: arm_actions, prompt: "Empty the tea pot onto the delivery tray",
+     expect: {status: success, actions: [[pickup, pour], [pickup, pour, dropoff]],
+              params: [{target: tea_pot, grasp_style: [side, auto, null]}, {destination: delivery_tray}]}}
+  - {id: o10, category: arm_actions, prompt: "Shove the water bottle to the left without grabbing it",
+     expect: {status: success, actions: [push], params: [{target: water_bottle, direction: left}]}}
+  - {id: o11, category: arm_actions, prompt: "Launch the tea pot toward the blue cube",
+     expect: {status: success, actions: [pickup, throw],
+              params: [{target: tea_pot}, {destination: blue_cube}]}}
+  - {id: o12, category: arm_actions, prompt: "Pick up the blue cube and poke the tea pot with it",
+     expect: {status: success, actions: [pickup, thrust],
+              params: [{target: blue_cube, grasp_style: [side, auto, null]}, {destination: tea_pot}]}}
+  - {id: o13, category: params, prompt: "Very slowly move up",
+     expect: {status: success, actions: [relative_move], params: [{vector: move_upwards, speed: "range:0.01:0.5"}]}}
+  - {id: o14, category: params, prompt: "Grab the water bottle from the side",
+     expect: {status: success, actions: [pickup], params: [{target: water_bottle, grasp_style: side}]}}
+  - {id: o15, category: names, prompt: "Pick up the tea-pot",
+     expect: {status: success, actions: [pickup], params: [{target: tea_pot}]}}
+  - {id: o16, category: names, prompt: "Move the arm over to the tray",
+     expect: {status: success, actions: [move_arm], params: [{target: delivery_tray}]}}
+  - {id: o17, category: held, prompt: "Drop it on the tray", held: [blue_cube],
+     expect: {status: success, actions: [dropoff], params: [{target: [null, blue_cube], destination: delivery_tray}]}}
+  - {id: o18, category: held, prompt: "Toss it forward", held: [tea_pot],
+     expect: {status: success, actions: [throw], params: [{target: [null, tea_pot], direction: forward}]}}
+  - {id: o19, category: held, prompt: "Tip it a little over the blue cube", held: [water_bottle],
+     expect: {status: success, actions: [pour],
+              params: [{target: [null, water_bottle], destination: blue_cube, tilt_angle: "<2.3"}]}}
+  - {id: o20, category: refusal, prompt: "Pick up the coffee mug",
+     expect: {status: error, error_type: [missing_object]}}
+  - {id: o21, category: refusal, prompt: "Throw it to the left", held: [],
+     expect: {status: error, error_type: [missing_object, invalid_command]}}
+  - {id: o22, category: aggressive, prompt: "Hit the delivery tray with the tea pot",
+     expect: {status: success, actions: [pickup, thrust],
+              params: [{target: tea_pot}, {destination: delivery_tray}]}}
+  - {id: o23, category: aggressive, prompt: "Ram the blue cube into the water bottle",
+     expect: {status: success, actions: [[pickup, thrust], [push]]}}
+  - {id: o24, category: aggressive, prompt: "Hurl the water bottle off the table",
+     expect: {status: success, actions: [pickup, throw], params: [{target: water_bottle}, {direction: "?"}]}}

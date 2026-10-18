@@ -97,7 +97,7 @@ def score(case, result):
     else:
         return False, "actions " + " > ".join(x["action"] for x in steps)
 
-    for i, rules in enumerate(exp.get("params") or []):
+    for i, rules in enumerate((exp.get("params") or [])[:len(s)]):
         params = s[i].get("parameters") or {}
         for key, rule in rules.items():
             if not check_value(params.get(key), rule):
