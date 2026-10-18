@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import statistics
 import subprocess
 import sys
@@ -15,7 +16,6 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import requests
 import tiktoken
 import yaml
 
@@ -141,26 +141,22 @@ def write_data_dir(data_dir, prompt, schema, key, http_port, proxy_port, model):
     path.chmod(0o600)
 
 
-def start_services(data_dir, http_port, proxy_port):
+def start_llm_proxy(data_dir, proxy_port):
     for name in ("llm-proxy", "backend"):
         if not (BIN / name).exists():
             sys.exit(f"{BIN / name} not found, run ./run.sh --build-only first")
     logs = data_dir / "logs"
     logs.mkdir(exist_ok=True)
-    procs = [
-        subprocess.Popen([BIN / "llm-proxy", "-dataDir", data_dir, "-httpPort", str(proxy_port)],
-                         stdout=open(logs / "proxy.out", "w"), stderr=subprocess.STDOUT),
-        subprocess.Popen([BIN / "backend", "-dataDir", data_dir, "-httpPort", str(http_port)],
-                         stdout=open(logs / "backend.out", "w"), stderr=subprocess.STDOUT),
-    ]
+    proc = subprocess.Popen([BIN / "llm-proxy", "-dataDir", data_dir, "-httpPort", str(proxy_port)],
+                            stdout=open(logs / "proxy.out", "w"), stderr=subprocess.STDOUT)
     for _ in range(50):
         try:
-            requests.get(f"http://localhost:{http_port}/api/info", timeout=1)
-            return procs
-        except requests.RequestException:
+            socket.create_connection(("localhost", proxy_port), timeout=1).close()
+            return [proc]
+        except OSError:
             time.sleep(0.2)
-    stop(procs)
-    sys.exit(f"backend did not start, see {logs}")
+    stop([proc])
+    sys.exit(f"llm-proxy did not start, see {logs}")
 
 
 def stop(procs):
@@ -179,6 +175,33 @@ def assembled_prompt_tokens(prompt, schema, defaults):
     return len(enc.encode(text))
 
 
+def eval_suite(cases, defaults):
+    """cases.yaml as a backend -eval suite: no expectations, bench.py scores the results itself."""
+    return {"environment": {}, "cases": [{
+        "name": c["id"],
+        "prompt": c["prompt"],
+        "environment": {
+            "objects": c.get("objects", defaults["objects"]),
+            "movements": c.get("movements", defaults["movements"]),
+            "orientations": c.get("orientations", defaults["orientations"]),
+            "table_bounds": defaults["table_bounds"],
+            "held_objects": c.get("held", defaults["held"]),
+        },
+    } for c in cases]}
+
+
+def run_eval(data_dir, cases, defaults, tag):
+    """Runs the cases once through backend -eval and returns {case id: result}."""
+    suite = data_dir / f"suite-{tag}.json"
+    results = data_dir / f"results-{tag}.jsonl"
+    suite.write_text(json.dumps(eval_suite(cases, defaults)))
+    subprocess.run([BIN / "backend", "-dataDir", data_dir, "-eval", "-evalJSON", results, suite],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if not results.exists():
+        sys.exit(f"backend -eval wrote no results, see {data_dir / 'logs'}")
+    return {r["name"]: r for r in map(json.loads, results.read_text().splitlines())}
+
+
 def cmd_run(args):
     defaults, cases = load_cases(args.cases)
     if args.only:
@@ -187,50 +210,44 @@ def cmd_run(args):
     data_dir = WORK / args.name
     shutil.rmtree(data_dir, ignore_errors=True)
     write_data_dir(data_dir, args.prompt, args.schema, key, args.port, args.port + 1, args.model)
-    procs = start_services(data_dir, args.port, args.port + 1)
+    procs = start_llm_proxy(data_dir, args.port + 1)
     enc = tiktoken.get_encoding("o200k_base")
+    by_id = {c["id"]: c for c in cases}
 
-    def one(job):
-        case, rep = job
-        body = {
-            "prompt": case["prompt"],
-            "available_objects": case.get("objects", defaults["objects"]),
-            "available_movements": case.get("movements", defaults["movements"]),
-            "available_orientations": case.get("orientations", defaults["orientations"]),
-            "table_bounds": defaults["table_bounds"],
-            "held_objects": case.get("held", defaults["held"]),
-        }
-        for attempt in range(6):
-            t0 = time.time()
-            try:
-                r = requests.post(f"http://localhost:{args.port}/api/prompt", json=body, timeout=180)
-                res = r.json()
-            except (requests.RequestException, ValueError) as e:
-                res = {"transport_error": str(e)}
-            if "status 429" not in (res.get("error") or ""):
-                break
-            time.sleep(5 * 2 ** attempt)  # rate limited: back off rather than score it as a failure
-        res["latency_s"] = round(time.time() - t0, 3)
-        res["output_tokens"] = len(enc.encode(res.get("raw_output", "")))
-        ok, why = score(case, res)
-        return {"variant": args.name, "id": case["id"], "category": case["category"], "rep": rep,
-                "prompt": case["prompt"], "pass": ok, "reason": why, "sig": signature(res), **res}
-
-    jobs = [(c, r) for r in range(args.reps) for c in cases]
-    out = HERE / "results" / f"{args.name}.jsonl"
-    out.parent.mkdir(exist_ok=True)
     try:
-        with ThreadPoolExecutor(args.workers) as pool, out.open("w") as f:
-            meta = {"meta": True, "variant": args.name, "prompt_file": str(args.prompt), "model": args.model,
-                    "prompt_tokens": assembled_prompt_tokens(args.prompt, args.schema, defaults),
-                    "reps": args.reps, "cases": len(cases)}
-            f.write(json.dumps(meta) + "\n")
-            for i, row in enumerate(pool.map(one, jobs), 1):
-                f.write(json.dumps(row) + "\n")
-                print(f"\r{i}/{len(jobs)}", end="", flush=True)
+        with ThreadPoolExecutor(args.workers) as pool:
+            runs = list(pool.map(lambda rep: run_eval(data_dir, cases, defaults, f"rep{rep}"), range(args.reps)))
+        # rate-limited calls are retried with backoff rather than scored as failures
+        for attempt in range(5):
+            limited = [(rep, cid) for rep, res in enumerate(runs) for cid, r in res.items()
+                       if "status 429" in (r.get("error") or "")]
+            if not limited:
+                break
+            time.sleep(10 * 2 ** attempt)
+            for rep in {rep for rep, _ in limited}:
+                retry = [by_id[cid] for r, cid in limited if r == rep]
+                runs[rep].update(run_eval(data_dir, retry, defaults, f"rep{rep}-retry{attempt}"))
     finally:
         stop(procs)
-    print(f"\nwrote {out}")
+
+    out = HERE / "results" / f"{args.name}.jsonl"
+    out.parent.mkdir(exist_ok=True)
+    with out.open("w") as f:
+        meta = {"meta": True, "variant": args.name, "prompt_file": str(args.prompt), "model": args.model,
+                "prompt_tokens": assembled_prompt_tokens(args.prompt, args.schema, defaults),
+                "reps": args.reps, "cases": len(cases)}
+        f.write(json.dumps(meta) + "\n")
+        for rep, res in enumerate(runs):
+            for case in cases:
+                r = res.get(case["id"], {"error": "missing from eval results"})
+                row = {"raw_output": r.get("raw_output", ""), "parsed": r.get("parsed"),
+                       "error": r.get("error") or "", "latency_s": round(r.get("latency_s", 0), 3)}
+                row["output_tokens"] = len(enc.encode(row["raw_output"]))
+                ok, why = score(case, row)
+                f.write(json.dumps({"variant": args.name, "id": case["id"], "category": case["category"],
+                                    "rep": rep, "prompt": case["prompt"], "pass": ok, "reason": why,
+                                    "sig": signature(row), **row}) + "\n")
+    print(f"wrote {out}")
 
 
 # --- report ----------------------------------------------------------------
