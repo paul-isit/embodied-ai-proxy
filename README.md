@@ -210,8 +210,7 @@ Missing keys fall back to the defaults shown. The `port` values are informationa
 
 ## Bring Your Own Model
 
-Any Hugging Face text model (a Hub ID like `Qwen/Qwen2.5-1.5B-Instruct`, or a local checkpoint folder from your own training) can be plugged in without converting it. Run it behind an OpenAI-compatible server, then point the proxy at it with the `openai` provider. The Go services don't change.
-
+Any Hugging Face text model (a Hub ID like `Qwen/Qwen2.5-1.5B-Instruct`, or a local checkpoint folder from your own training) can be plugged in without converting it.
 | Your machine | Use |
 | :--- | :--- |
 | Linux (or WSL2) with an NVIDIA GPU | [vLLM](https://docs.vllm.ai): fast, the standard choice |
@@ -238,7 +237,7 @@ vllm serve /path/to/checkpoint --served-model-name my-model --port 8000
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r hf-server/requirements.txt
-python hf-server/serve.py Qwen/Qwen2.5-1.5B-Instruct --port 8000
+python3 hf-server/serve.py Qwen/Qwen2.5-1.5B-Instruct --port 8000
 ```
 
 - `--device auto` (the default) picks CUDA, then Apple MPS, then CPU.
@@ -246,8 +245,7 @@ python hf-server/serve.py Qwen/Qwen2.5-1.5B-Instruct --port 8000
 - `--host 0.0.0.0` accepts connections from other machines, e.g. a Linux VM talking to the server on its Mac host. The default `127.0.0.1` is local only.
 - **There is no authentication.** Anyone who can reach the port can use your model and hardware, and the server handles one request at a time, so one bad client can block it. Don't expose it on a shared network: bind `--host` to the VM's host-only/bridge interface address instead of `0.0.0.0`, or keep the default and use an SSH tunnel (`ssh -L 8000:localhost:8000 <server-host>`).
 - LoRA adapters: merge them into the base model first (`peft`'s `merge_and_unload()`, then `save_pretrained`), and serve the merged folder.
-- It handles one request at a time and is much slower than vLLM, which is fine for testing and evaluation.
-- It rejects `max_tokens` above 4096 and request bodies over 1 MiB (`MAX_TOKENS_LIMIT` / `MAX_BODY_BYTES` in `serve.py`).
+- `max_tokens` above 4096 and request bodies over 1 MiB (`MAX_TOKENS_LIMIT` / `MAX_BODY_BYTES` in `serve.py`) are rejected.
 
 ### Pointing the proxy at it
 
