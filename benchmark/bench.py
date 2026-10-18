@@ -263,8 +263,18 @@ def summarize(meta, rows):
     }
 
 
+def rescore(rows, cases_path):
+    _, cases = load_cases(cases_path)
+    by_id = {c["id"]: c for c in cases}
+    for r in rows:
+        if r["id"] in by_id:
+            r["pass"], r["reason"] = score(by_id[r["id"]], r)
+    return rows
+
+
 def cmd_report(args):
-    sums = [summarize(*load_results(p)) for p in args.results]
+    loaded = [load_results(p) for p in args.results]
+    sums = [summarize(meta, rescore(rows, args.cases)) for meta, rows in loaded]
     names = [s["variant"] for s in sums]
     row = lambda label, vals: print(f"{label:<28}" + "".join(f"{v:>16}" for v in vals))
     pct = lambda x: f"{x * 100:.1f}%"
@@ -316,6 +326,7 @@ def main():
     r.add_argument("--only", help="comma-separated case ids")
     p = sub.add_parser("report")
     p.add_argument("results", nargs="+")
+    p.add_argument("--cases", default=str(HERE / "cases.yaml"))
     args = ap.parse_args()
     cmd_run(args) if args.cmd == "run" else cmd_report(args)
 

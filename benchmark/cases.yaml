@@ -5,7 +5,7 @@
 #   status: success | error
 #   error_type: [allowed error types]          (error cases only, optional)
 #   actions: [a, b]  or  [[a, b], [a, c, b]]   (acceptable action sequences)
-#   params: [{...}, {...}]                     (one dict per expected step, aligned with `actions`)
+#   params: [{...}, {...}]                     (one dict per step, checked against the leading steps of whichever sequence matched)
 #   no_trailing_home: true                     (fail if the recipe ends on home)
 # Leading/trailing `home` steps are ignored unless the expected sequence starts/ends with home.
 # Param checks: literal | [one, of] | "!" absent | "?" present | "<x" | ">x" | "range:a:b"
@@ -70,7 +70,7 @@ cases:
 
   # --- pour / push / thrust / throw ---------------------------------------
   - {id: n01, category: arm_actions, prompt: "Pour the water bottle into the tea pot",
-     expect: {status: success, actions: [pickup, pour],
+     expect: {status: success, actions: [[pickup, pour], [pickup, pour, dropoff]],
               params: [{target: water_bottle, grasp_style: side}, {destination: tea_pot}]}}
   - {id: n02, category: arm_actions, prompt: "Pick up the water bottle and tip it slightly over the tray",
      expect: {status: success, actions: [pickup, pour],
@@ -178,5 +178,5 @@ cases:
   - {id: x06, category: aggressive, prompt: "Shove the tea pot off the edge of the table",
      expect: {status: success, actions: [push], params: [{target: tea_pot, direction: "?"}]}}
   - {id: x07, category: aggressive, prompt: "Dump the water bottle all over the delivery tray",
-     expect: {status: success, actions: [pickup, pour],
+     expect: {status: success, actions: [[pickup, pour], [pickup, pour, dropoff]],
               params: [{target: water_bottle}, {destination: delivery_tray}]}}
