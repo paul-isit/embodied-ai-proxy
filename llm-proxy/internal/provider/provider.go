@@ -61,10 +61,13 @@ type TimeoutError struct {
 	Cause    error
 }
 
+// Error implements the error interface.
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf("provider %s: request timed out: %v", e.Provider, e.Cause)
 }
 
+// Unwrap returns the underlying context-deadline error, so errors.Is/As can
+// see through the wrapping.
 func (e *TimeoutError) Unwrap() error {
 	return e.Cause
 }
@@ -79,6 +82,7 @@ type StatusError struct {
 	Body       string
 }
 
+// Error implements the error interface.
 func (e *StatusError) Error() string {
 	return fmt.Sprintf("%s: unexpected status %d: %s", e.Provider, e.StatusCode, e.Body)
 }

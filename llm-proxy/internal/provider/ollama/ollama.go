@@ -20,6 +20,9 @@ type Adapter struct {
 	httpClient  *http.Client
 }
 
+// New builds an Ollama Adapter for the given model and connection settings.
+// No API key, Ollama is expected to be a local (or otherwise trusted)
+// instance. httpClient defaults to http.DefaultClient if nil.
 func New(model, baseURL string, maxTokens int, temperature float64, httpClient *http.Client) *Adapter {
 	if httpClient == nil {
 		httpClient = http.DefaultClient

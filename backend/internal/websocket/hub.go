@@ -63,10 +63,14 @@ type Hub struct {
 	promptHandler PromptHandler
 }
 
+// NewHub creates an empty Hub with no client connected and no prompt handler set.
 func NewHub() *Hub {
 	return &Hub{}
 }
 
+// SetPromptHandler registers the handler that processes incoming prompt_submit
+// messages. Must be called before a client connects, or submitted prompts
+// have nowhere to go.
 func (h *Hub) SetPromptHandler(handler PromptHandler) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
