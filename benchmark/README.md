@@ -26,7 +26,7 @@ The OpenAI key is read from `--key-file`, then `$OPENAI_API_KEY`, then `~/.confi
 .venv/bin/python benchmark/bench.py report benchmark/results/baseline.jsonl benchmark/results/trimmed.jsonl
 ```
 
-Options: `--reps` (default 5), `--model` (default `gpt-4o-mini`), `--schema`, `--only b01,p03`, `--workers`, `--port`.
+Options: `--reps` (default 5), `--model` (default `gpt-4o-mini`), `--schema`, `--only b01,p03`, `--workers` (default 3; more can hit OpenAI rate limits, which are retried with backoff), `--port`.
 
 ## Report
 

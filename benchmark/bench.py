@@ -39,10 +39,10 @@ def check_value(actual, rule):
         return actual is None
     if rule == "?":
         return actual is not None
-    if actual is None:
-        return False
     if isinstance(rule, list):
         return actual in rule
+    if actual is None:
+        return False
     if isinstance(rule, str) and rule[:1] in "<>" and rule[1:2].isdigit():
         if not isinstance(actual, (int, float)):
             return False
@@ -198,13 +198,18 @@ def cmd_run(args):
             "available_movements": case.get("movements", defaults["movements"]),
             "available_orientations": case.get("orientations", defaults["orientations"]),
             "table_bounds": defaults["table_bounds"],
+            "held_objects": case.get("held", defaults["held"]),
         }
-        t0 = time.time()
-        try:
-            r = requests.post(f"http://localhost:{args.port}/api/prompt", json=body, timeout=180)
-            res = r.json()
-        except (requests.RequestException, ValueError) as e:
-            res = {"transport_error": str(e)}
+        for attempt in range(6):
+            t0 = time.time()
+            try:
+                r = requests.post(f"http://localhost:{args.port}/api/prompt", json=body, timeout=180)
+                res = r.json()
+            except (requests.RequestException, ValueError) as e:
+                res = {"transport_error": str(e)}
+            if "status 429" not in (res.get("error") or ""):
+                break
+            time.sleep(5 * 2 ** attempt)  # rate limited: back off rather than score it as a failure
         res["latency_s"] = round(time.time() - t0, 3)
         res["output_tokens"] = len(enc.encode(res.get("raw_output", "")))
         ok, why = score(case, res)
@@ -321,7 +326,7 @@ def main():
     r.add_argument("--model", default="gpt-4o-mini")
     r.add_argument("--cases", default=str(HERE / "cases.yaml"))
     r.add_argument("--reps", type=int, default=5)
-    r.add_argument("--workers", type=int, default=6)
+    r.add_argument("--workers", type=int, default=3)
     r.add_argument("--port", type=int, default=18080)
     r.add_argument("--only", help="comma-separated case ids")
     p = sub.add_parser("report")

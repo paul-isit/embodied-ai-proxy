@@ -8,7 +8,8 @@
 #   params: [{...}, {...}]                     (one dict per step, checked against the leading steps of whichever sequence matched)
 #   no_trailing_home: true                     (fail if the recipe ends on home)
 # Leading/trailing `home` steps are ignored unless the expected sequence starts/ends with home.
-# Param checks: literal | [one, of] | "!" absent | "?" present | "<x" | ">x" | "range:a:b"
+# Param checks: literal | [one, of] (null in the list allows absent) | "!" absent | "?" present | "<x" | ">x" | "range:a:b"
+# held: what the gripper holds, sent as held_objects (default: nothing).
 # Gripper convention (schema): 0.0 = open, 1.0 = closed.
 
 defaults:
@@ -16,6 +17,7 @@ defaults:
   movements: [move_upwards, move_downwards, move_left, move_right, thrust_forward, retreat]
   orientations: [top_down, top_down_90, side_level]
   table_bounds: {available: true, x_min: -0.7, x_max: 0.7, y_min: -0.7, y_max: 0.7}
+  held: []
 
 cases:
   # --- basic manual moves -------------------------------------------------
@@ -136,16 +138,16 @@ cases:
               params: [{target: tea_pot}, {destination: delivery_tray}]}}
 
   # --- follow-ups on a held object (target omitted) -----------------------
-  - {id: h01, category: held, prompt: "Put it down",
-     expect: {status: success, actions: [dropoff], params: [{target: "!", destination: "!"}]}}
-  - {id: h02, category: held, prompt: "Now place it on the delivery tray",
-     expect: {status: success, actions: [dropoff], params: [{target: "!", destination: delivery_tray}]}}
-  - {id: h03, category: held, prompt: "Throw it to the right",
-     expect: {status: success, actions: [throw], params: [{target: "!", direction: right}]}}
-  - {id: h04, category: held, prompt: "Now pour it over the tea pot",
-     expect: {status: success, actions: [pour], params: [{target: "!", destination: tea_pot}]}}
-  - {id: h05, category: held, prompt: "Thrust it forward",
-     expect: {status: success, actions: [thrust], params: [{target: "!", direction: forward}]}}
+  - {id: h01, category: held, prompt: "Put it down", held: [water_bottle],
+     expect: {status: success, actions: [dropoff], params: [{target: [null, water_bottle], destination: "!"}]}}
+  - {id: h02, category: held, prompt: "Now place it on the delivery tray", held: [water_bottle],
+     expect: {status: success, actions: [dropoff], params: [{target: [null, water_bottle], destination: delivery_tray}]}}
+  - {id: h03, category: held, prompt: "Throw it to the right", held: [water_bottle],
+     expect: {status: success, actions: [throw], params: [{target: [null, water_bottle], direction: right}]}}
+  - {id: h04, category: held, prompt: "Now pour it over the tea pot", held: [water_bottle],
+     expect: {status: success, actions: [pour], params: [{target: [null, water_bottle], destination: tea_pot}]}}
+  - {id: h05, category: held, prompt: "Thrust it forward", held: [water_bottle],
+     expect: {status: success, actions: [thrust], params: [{target: [null, water_bottle], direction: forward}]}}
 
   # --- should refuse ------------------------------------------------------
   - {id: r01, category: refusal, prompt: "Pick up the banana",
@@ -161,6 +163,8 @@ cases:
      expect: {status: error, error_type: [missing_object]}}
   - {id: r06, category: refusal, prompt: "Hand me the screwdriver",
      expect: {status: error, error_type: [missing_object]}}
+  - {id: r07, category: refusal, prompt: "Put it down", held: [],
+     expect: {status: error, error_type: [missing_object, invalid_command]}}
 
   # --- aggressive phrasing: must map onto an action, not be refused -------
   - {id: x01, category: aggressive, prompt: "Stab the delivery tray with the water bottle",
