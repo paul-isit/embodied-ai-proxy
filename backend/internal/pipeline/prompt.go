@@ -14,6 +14,7 @@ const (
 	placeholderMovements    = "{available_movements}"
 	placeholderOrientations = "{available_orientations}"
 	placeholderTableBounds  = "{table_bounds}"
+	placeholderHeldObjects  = "{held_objects}"
 	placeholderCommand      = "{user_command}"
 )
 
@@ -406,6 +407,15 @@ func formatTableBounds(bounds rosbridge.TableBounds) string {
 	)
 }
 
+// formatHeldObjects renders what the gripper holds, so the LLM knows what
+// "it" refers to instead of guessing.
+func formatHeldObjects(held *[]string) string {
+	if held == nil {
+		return "Unknown - the arm may still be holding an object from an earlier command."
+	}
+	return namedListOrFallback(*held, "Nothing is currently held.")
+}
+
 func (p *Pipeline) buildPrompt(userText string, environment rosbridge.EnvironmentParams) string {
 	objectsStr := namedListOrFallback(environment.Objects, "No objects currently mapped.")
 	movementsStr := namedListOrFallback(environment.Movements, "No named relative movements are currently mapped.")
@@ -418,6 +428,7 @@ func (p *Pipeline) buildPrompt(userText string, environment rosbridge.Environmen
 	result = strings.ReplaceAll(result, placeholderMovements, movementsStr)
 	result = strings.ReplaceAll(result, placeholderOrientations, orientationsStr)
 	result = strings.ReplaceAll(result, placeholderTableBounds, tableBoundsStr)
+	result = strings.ReplaceAll(result, placeholderHeldObjects, formatHeldObjects(environment.HeldObjects))
 	result = strings.ReplaceAll(result, placeholderCommand, userText)
 	return result
 }

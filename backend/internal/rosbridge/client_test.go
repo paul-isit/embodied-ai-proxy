@@ -432,3 +432,78 @@ func TestClient_Snapshot_VisionNodeNotRunning(t *testing.T) {
 		t.Fatalf("Snapshot() error = %v, want a hint that the vision node isn't running", err)
 	}
 }
+
+// robotParametersServer answers /get_robot_parameters with the given values.
+func robotParametersServer(t *testing.T, values map[string]any) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		for {
+			var msg map[string]any
+			if err := ws.ReadJSON(&msg); err != nil {
+				return
+			}
+			if msg["op"] == "call_service" && msg["service"] == "/get_robot_parameters" {
+				trueVal := true
+				ws.WriteJSON(map[string]any{
+					"op": "service_response", "id": msg["id"], "service": msg["service"],
+					"result": &trueVal, "values": values,
+				})
+			}
+		}
+	}))
+}
+
+func fetchEnvironmentParams(t *testing.T, values map[string]any) EnvironmentParams {
+	t.Helper()
+	server := robotParametersServer(t, values)
+	defer server.Close()
+
+	client := NewClient("ws"+strings.TrimPrefix(server.URL, "http"), &mockObserver{})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	client.Start(ctx)
+	for !client.IsConnected() {
+		if ctx.Err() != nil {
+			t.Fatal("timed out waiting for connection")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	params, err := client.FetchEnvironmentParams(ctx)
+	if err != nil {
+		t.Fatalf("FetchEnvironmentParams() error = %v", err)
+	}
+	return params
+}
+
+func TestClient_FetchEnvironmentParams_HeldObjects(t *testing.T) {
+	params := fetchEnvironmentParams(t, map[string]any{
+		"object_list":  []string{"water_bottle"},
+		"held_objects": []string{"water_bottle"},
+	})
+	if params.HeldObjects == nil || len(*params.HeldObjects) != 1 || (*params.HeldObjects)[0] != "water_bottle" {
+		t.Errorf("HeldObjects = %v, want [water_bottle]", params.HeldObjects)
+	}
+}
+
+func TestClient_FetchEnvironmentParams_NothingHeld(t *testing.T) {
+	params := fetchEnvironmentParams(t, map[string]any{
+		"object_list":  []string{"water_bottle"},
+		"held_objects": []string{},
+	})
+	if params.HeldObjects == nil || len(*params.HeldObjects) != 0 {
+		t.Errorf("HeldObjects = %v, want known and empty", params.HeldObjects)
+	}
+}
+
+func TestClient_FetchEnvironmentParams_OlderMiddlewareWithoutHeldObjects(t *testing.T) {
+	params := fetchEnvironmentParams(t, map[string]any{"object_list": []string{"water_bottle"}})
+	if params.HeldObjects != nil {
+		t.Errorf("HeldObjects = %v, want nil (unknown)", *params.HeldObjects)
+	}
+}

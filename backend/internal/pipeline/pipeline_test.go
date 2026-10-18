@@ -155,7 +155,7 @@ func (m *mockROSBridge) ExecuteRecipe(ctx context.Context, recipeJSON []byte) er
 	return nil
 }
 
-const testSystemPrompt = "Schema:\n{schema_template}\n\nObjects:\n{available_objects}\n\nMovements:\n{available_movements}\n\nOrientations:\n{available_orientations}\n\nTable:\n{table_bounds}\n\nCommand: {user_command}"
+const testSystemPrompt = "Schema:\n{schema_template}\n\nObjects:\n{available_objects}\n\nMovements:\n{available_movements}\n\nOrientations:\n{available_orientations}\n\nTable:\n{table_bounds}\n\nHeld:\n{held_objects}\n\nCommand: {user_command}"
 
 func TestPipeline_Run_ValidRecipe(t *testing.T) {
 	llmProxy := fakeLLMProxy(t, `{"status":"success","recipe_name":"test","steps":[{"step_id":1,"action":"home","description":"go home","parameters":{}}]}`)
