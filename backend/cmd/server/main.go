@@ -16,16 +16,18 @@ import (
 )
 
 // getAppArgs parses the flags, returning the test suite files to run when
-// -eval is given.
-func getAppArgs() (server.ApplicationArgs, []string) {
+// -eval is given and the optional -evalJSON results file.
+func getAppArgs() (server.ApplicationArgs, []string, string) {
 	var (
 		dataDir  string
 		httpPort int
 		evalMode bool
+		evalJSON string
 	)
 	flag.StringVar(&dataDir, "dataDir", "data", "The path to the data folder for the application (config.json, json_schema.json, and system_prompt.md all live under <dataDir>/config)")
 	flag.IntVar(&httpPort, "httpPort", sharedconfig.DefaultServerPort, "http server port")
 	flag.BoolVar(&evalMode, "eval", false, "Run the given JSON test suites (e.g. -eval tests/*.json) through the pipeline and exit, instead of serving")
+	flag.StringVar(&evalJSON, "evalJSON", "", "With -eval, also write each case's raw result to this file as JSON lines")
 	flag.Parse()
 
 	var evalFiles []string
@@ -39,7 +41,7 @@ func getAppArgs() (server.ApplicationArgs, []string) {
 	return server.ApplicationArgs{
 		DataDir:  dataDir,
 		HTTPPort: httpPort,
-	}, evalFiles
+	}, evalFiles, evalJSON
 }
 
 func main() {
@@ -56,9 +58,9 @@ func run() int {
 	)
 	defer stop()
 
-	args, evalFiles := getAppArgs()
+	args, evalFiles, evalJSON := getAppArgs()
 	if evalFiles != nil {
-		return runEval(ctx, args, evalFiles)
+		return runEval(ctx, args, evalFiles, evalJSON)
 	}
 
 	if closer, err := logging.Setup(args.DataDir, "server"); err != nil {
@@ -83,7 +85,7 @@ func run() int {
 
 // runEval runs the test suites and returns the exit code. Logs go only to
 // the eval log file, so stdout shows just the report.
-func runEval(ctx context.Context, args server.ApplicationArgs, suiteFiles []string) int {
+func runEval(ctx context.Context, args server.ApplicationArgs, suiteFiles []string, resultsPath string) int {
 	if logFile, err := logging.Open(args.DataDir, "eval"); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: no eval log (%v)\n", err)
 		log.SetOutput(io.Discard)
@@ -98,8 +100,19 @@ func runEval(ctx context.Context, args server.ApplicationArgs, suiteFiles []stri
 		return 1
 	}
 
+	var results io.Writer
+	if resultsPath != "" {
+		resultsFile, err := os.Create(resultsPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create %s: %v\n", resultsPath, err)
+			return 1
+		}
+		defer resultsFile.Close()
+		results = resultsFile
+	}
+
 	llm := srv.LLMConfig()
-	if failed := eval.Run(ctx, srv.Pipeline(), llm.Provider+" · "+llm.Model, suiteFiles, os.Stdout); failed > 0 {
+	if failed := eval.Run(ctx, srv.Pipeline(), llm.Provider+" · "+llm.Model, suiteFiles, os.Stdout, results); failed > 0 {
 		return 1
 	}
 	return 0

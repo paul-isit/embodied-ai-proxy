@@ -23,6 +23,8 @@ type environment struct {
 	Movements    []string              `json:"movements"`
 	Orientations []string              `json:"orientations"`
 	TableBounds  rosbridge.TableBounds `json:"table_bounds"`
+	// HeldObjects omitted means unknown, [] means nothing held.
+	HeldObjects *[]string `json:"held_objects"`
 }
 
 // caseSpec is one test case as written in a suite file.
@@ -42,10 +44,23 @@ type suiteFile struct {
 	Cases       []caseSpec  `json:"cases"`
 }
 
+// caseResult is one line of the optional machine-readable results.
+type caseResult struct {
+	Suite     string          `json:"suite"`
+	Name      string          `json:"name"`
+	Prompt    string          `json:"prompt"`
+	Passed    bool            `json:"passed"`
+	RawOutput string          `json:"raw_output,omitempty"`
+	Parsed    json.RawMessage `json:"parsed,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	LatencyS  float64         `json:"latency_s"`
+}
+
 // Run runs every suite through promptPipeline, writes a report to out and
 // returns the number of failed cases. A suite that can't be loaded counts as
-// one failure.
-func Run(ctx context.Context, promptPipeline *pipeline.Pipeline, model string, suitePaths []string, out io.Writer) int {
+// one failure. If results isn't nil, each case's raw result is also written
+// to it as a JSON line, for tools such as benchmark/bench.py.
+func Run(ctx context.Context, promptPipeline *pipeline.Pipeline, model string, suitePaths []string, out, results io.Writer) int {
 	start := time.Now()
 	casesRun := 0
 	var failures []string
@@ -82,10 +97,19 @@ func Run(ctx context.Context, promptPipeline *pipeline.Pipeline, model string, s
 				Movements:    env.Movements,
 				Orientations: env.Orientations,
 				TableBounds:  env.TableBounds,
+				HeldObjects:  env.HeldObjects,
 			})
 			casesRun++
 
 			mismatches, passed := check(tc, result)
+			if results != nil {
+				line, _ := json.Marshal(caseResult{
+					Suite: suiteLabel, Name: name, Prompt: tc.Prompt, Passed: passed,
+					RawOutput: result.RawOutput, Parsed: result.Parsed, Error: result.Error,
+					LatencyS: time.Since(caseStart).Seconds(),
+				})
+				fmt.Fprintf(results, "%s\n", line)
+			}
 			status := "PASS"
 			if !passed {
 				status = "FAIL"

@@ -90,7 +90,7 @@ func TestRun(t *testing.T) {
 	}`), 0o644)
 
 	var out bytes.Buffer
-	failed := Run(context.Background(), promptPipeline, "fake · model", []string{suitePath, "missing.json"}, &out)
+	failed := Run(context.Background(), promptPipeline, "fake · model", []string{suitePath, "missing.json"}, &out, nil)
 
 	report := out.String()
 	if failed != 3 { // wrong target, not json, missing.json
@@ -114,5 +114,54 @@ func TestRun(t *testing.T) {
 		if !strings.Contains(report, want) {
 			t.Errorf("report missing %q\n%s", want, report)
 		}
+	}
+}
+
+func TestRun_WritesResultsAndPassesHeldObjects(t *testing.T) {
+	var gotPrompt string
+	fakeLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct{ Prompt string }
+		json.NewDecoder(r.Body).Decode(&request)
+		gotPrompt = request.Prompt
+		reply := `{"status":"success","recipe_name":"r","steps":[{"step_id":1,"action":"dropoff","description":"d","parameters":{}}]}`
+		json.NewEncoder(w).Encode(map[string]string{"text": reply})
+	}))
+	defer fakeLLM.Close()
+
+	schemaPath, _ := filepath.Abs("../../../data/config/json_schema.json")
+	schemaRaw, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schemaValidator, err := validator.New(schemaPath, schemaRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promptPipeline := pipeline.New(nil, nil, schemaValidator, fakeLLM.URL, "held: {held_objects} | {user_command}", schemaRaw)
+
+	suitePath := filepath.Join(t.TempDir(), "suite.json")
+	os.WriteFile(suitePath, []byte(`{
+		"environment": {"objects": ["blue_cube"], "held_objects": ["blue_cube"]},
+		"cases": [{"name": "put it down", "prompt": "put it down"}]
+	}`), 0o644)
+
+	var out, results bytes.Buffer
+	if failed := Run(context.Background(), promptPipeline, "fake · model", []string{suitePath}, &out, &results); failed != 0 {
+		t.Fatalf("Run() = %d failures\n%s", failed, out.String())
+	}
+
+	if !strings.Contains(gotPrompt, "- blue_cube") {
+		t.Errorf("prompt = %q, want it to list the held object", gotPrompt)
+	}
+	var line struct {
+		Name   string          `json:"name"`
+		Passed bool            `json:"passed"`
+		Parsed json.RawMessage `json:"parsed"`
+	}
+	if err := json.Unmarshal(results.Bytes(), &line); err != nil {
+		t.Fatalf("results = %q: %v", results.String(), err)
+	}
+	if line.Name != "put it down" || !line.Passed || !strings.Contains(string(line.Parsed), `"dropoff"`) {
+		t.Errorf("results line = %+v, want the passed dropoff recipe", line)
 	}
 }

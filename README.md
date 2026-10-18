@@ -311,7 +311,8 @@ A suite is a JSON file:
     "objects": ["blue_cube", "delivery_tray"],
     "movements": ["move_upwards"],
     "orientations": ["top_down"],
-    "table_bounds": { "available": true, "x_min": 0.2, "x_max": 0.8, "y_min": -0.4, "y_max": 0.4 }
+    "table_bounds": { "available": true, "x_min": 0.2, "x_max": 0.8, "y_min": -0.4, "y_max": 0.4 },
+    "held_objects": []
   },
   "cases": [
     {
@@ -334,6 +335,8 @@ A suite is a JSON file:
 - Matching is partial: only the keys you write are checked (`step_id`, `description`, `recipe_name` etc. can be left out), and `null` means "this key must be absent". `steps` must match in order and in number.
 - Expectations are checked after name resolution, so `"blu cube"` → `"blue_cube"` counts as correct.
 - A case can set its own `environment`, which replaces the suite's for that case.
+- `held_objects` is what the gripper holds (`[]` for nothing). Leave it out to tell the LLM it's unknown.
+- `-evalJSON <file>` also writes each case's raw result as JSON lines; `benchmark/` uses it to run cases repeatedly and compare prompt versions (see `benchmark/README.md`).
 
 Full prompts and LLM responses are logged to `data/logs/eval.log`.
 
