@@ -112,7 +112,9 @@ type promptTimeoutMsg struct {
 	sentAt time.Time
 }
 
-const promptTimeout = 60 * time.Second //timeout after 60 seconds
+// promptTimeout matches the backend's execution_timeout_seconds default (300s),
+// since action_recipe is only sent once the recipe has finished executing
+const promptTimeout = 300 * time.Second
 
 func promptTimeoutCmd(sentAt time.Time) tea.Cmd {
 	return tea.Tick(promptTimeout, func(time.Time) tea.Msg {
@@ -280,7 +282,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case promptTimeoutMsg:
 		if m.inFlight && m.promptSentAt.Equal(msg.sentAt) {
 			m.inFlight = false
-			m = m.appendEntry(errTag, "No response received within 60s - you can try again.")
+			m = m.appendEntry(errTag, fmt.Sprintf("No response received within %ds - you can try again.", int(promptTimeout.Seconds())))
 		}
 		return m, nil
 

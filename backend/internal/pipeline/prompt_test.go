@@ -38,3 +38,42 @@ func TestBuildPrompt_SubstitutesTableBounds(t *testing.T) {
 		t.Errorf("buildPrompt() = %q, want it to contain the table bounds", got)
 	}
 }
+
+func TestFormatHeldObjects(t *testing.T) {
+	held := []string{"water_bottle"}
+	none := []string{}
+	cases := []struct {
+		name string
+		held *[]string
+		want string
+	}{
+		{"unknown", nil, "Unknown"},
+		{"nothing held", &none, "Nothing is currently held."},
+		{"holding an object", &held, "- water_bottle"},
+	}
+	for _, tc := range cases {
+		if got := formatHeldObjects(tc.held); !strings.Contains(got, tc.want) {
+			t.Errorf("%s: formatHeldObjects() = %q, want it to contain %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestBuildPrompt_SubstitutesHeldObjects(t *testing.T) {
+	p := &Pipeline{systemPrompt: testSystemPrompt, schemaBlock: "{}"}
+	held := []string{"water_bottle"}
+
+	got := p.buildPrompt("put it down", rosbridge.EnvironmentParams{HeldObjects: &held})
+
+	if strings.Contains(got, "{held_objects}") {
+		t.Errorf("buildPrompt() left the {held_objects} placeholder unsubstituted: %q", got)
+	}
+	if !strings.Contains(got, "- water_bottle") {
+		t.Errorf("buildPrompt() = %q, want it to list the held object", got)
+	}
+}
+
+func TestDefaultSystemPrompt_HasHeldObjectsPlaceholder(t *testing.T) {
+	if !strings.Contains(DefaultSystemPrompt, placeholderHeldObjects) {
+		t.Errorf("DefaultSystemPrompt is missing the %s placeholder", placeholderHeldObjects)
+	}
+}

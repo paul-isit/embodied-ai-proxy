@@ -56,6 +56,9 @@ type EnvironmentParams struct {
 	Movements    []string
 	Orientations []string
 	TableBounds  TableBounds
+	// HeldObjects is nil when it isn't known what the gripper holds (an
+	// older middleware, or a refresh that failed), empty when nothing is held.
+	HeldObjects *[]string
 }
 
 type serviceResponse struct {
@@ -380,14 +383,17 @@ type getRobotParametersResponse struct {
 	TableXMax        float64  `json:"table_x_max"`
 	TableYMin        float64  `json:"table_y_min"`
 	TableYMax        float64  `json:"table_y_max"`
+	// HeldObjects is a pointer so a middleware that predates the field
+	// (nil) can be told apart from one reporting nothing held (empty).
+	HeldObjects *[]string `json:"held_objects"`
 }
 
 // FetchEnvironmentParams queries the /get_robot_parameters ROS service for the
 // known object names, named relative movements, named orientation presets,
-// and the table's footprint (if configured).
+// the table's footprint (if configured), and which objects the gripper holds.
 //
 // Only names reach the LLM. The middleware's /get_scene_objects has more per object
-// (description, pose, size, and which one is held) if the prompt ever needs it.
+// (description, pose, size) if the prompt ever needs it.
 func (c *Client) FetchEnvironmentParams(ctx context.Context) (EnvironmentParams, error) {
 	values, err := c.CallService(ctx, getRobotParametersService, map[string]any{})
 	if err != nil {
@@ -410,6 +416,7 @@ func (c *Client) FetchEnvironmentParams(ctx context.Context) (EnvironmentParams,
 			YMin:      resp.TableYMin,
 			YMax:      resp.TableYMax,
 		},
+		HeldObjects: resp.HeldObjects,
 	}, nil
 }
 

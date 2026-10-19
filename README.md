@@ -231,7 +231,7 @@ ROS2 Middleware Execution Layer (Kinova Gen3 Lite)
 
 1. **Go Backend** (`backend/`):
    - Owns application state, environment object registry, and WebSocket client hub (`/ws/client`).
-   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying the environment (`/get_robot_parameters`), listening to telemetry (`/system/status`), executing recipes (`/execute_recipe`), resetting objects (`/reset_environment`) and triggering camera scans (`/vision/snapshot`, needs the middleware's `enable_CV:=true`).
+   - Connects directly as a WebSocket client to ROS 2 `rosbridge_server` (`ws://localhost:9090`), querying the environment and what the gripper holds (`/get_robot_parameters`), listening to telemetry (`/system/status`), executing recipes (`/execute_recipe`), resetting objects (`/reset_environment`) and triggering camera scans (`/vision/snapshot`, needs the middleware's `enable_CV:=true`).
    - Uses `internal/pipeline` to build prompts, query the LLM proxy, validate output against `data/config/json_schema.json`, resolve names, and dispatch action recipes.
    - Accepts one TUI client at a time.
    - Exposes `GET /api/info` (live stats, configuration, prompt), `POST /api/reset` and `POST /api/scan`.
@@ -311,7 +311,8 @@ A suite is a JSON file:
     "objects": ["blue_cube", "delivery_tray"],
     "movements": ["move_upwards"],
     "orientations": ["top_down"],
-    "table_bounds": { "available": true, "x_min": 0.2, "x_max": 0.8, "y_min": -0.4, "y_max": 0.4 }
+    "table_bounds": { "available": true, "x_min": 0.2, "x_max": 0.8, "y_min": -0.4, "y_max": 0.4 },
+    "held_objects": []
   },
   "cases": [
     {
@@ -334,6 +335,8 @@ A suite is a JSON file:
 - Matching is partial: only the keys you write are checked (`step_id`, `description`, `recipe_name` etc. can be left out), and `null` means "this key must be absent". `steps` must match in order and in number.
 - Expectations are checked after name resolution, so `"blu cube"` → `"blue_cube"` counts as correct.
 - A case can set its own `environment`, which replaces the suite's for that case.
+- `held_objects` is what the gripper holds (`[]` for nothing). Leave it out to tell the LLM it's unknown.
+- `-evalJSON <file>` also writes each case's raw result (output, parsed recipe, error, latency, pass/fail) as JSON lines, for other tools to score or aggregate.
 
 Full prompts and LLM responses are logged to `data/logs/eval.log`.
 
