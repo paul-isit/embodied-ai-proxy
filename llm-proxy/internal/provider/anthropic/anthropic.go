@@ -23,6 +23,8 @@ type Adapter struct {
 	httpClient  *http.Client
 }
 
+// New builds an Anthropic Adapter for the given model and connection
+// settings. httpClient defaults to http.DefaultClient if nil.
 func New(model, baseURL, apiKey string, maxTokens int, temperature float64, httpClient *http.Client) *Adapter {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -59,6 +61,7 @@ type messagesResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
+// Generate implements provider.Provider by calling Anthropic's Messages API.
 func (a *Adapter) Generate(ctx context.Context, req provider.Request) (provider.Response, error) {
 	maxTokens, temperature := provider.ResolveParams(a.maxTokens, a.temperature, req)
 
