@@ -112,7 +112,7 @@ type promptTimeoutMsg struct {
 	sentAt time.Time
 }
 
-const promptTimeout = 60 * time.Second //timeout after 60 seconds
+const promptTimeout = 120 * time.Second //timeout after 120 seconds
 
 func promptTimeoutCmd(sentAt time.Time) tea.Cmd {
 	return tea.Tick(promptTimeout, func(time.Time) tea.Msg {
@@ -280,7 +280,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case promptTimeoutMsg:
 		if m.inFlight && m.promptSentAt.Equal(msg.sentAt) {
 			m.inFlight = false
-			m = m.appendEntry(errTag, "No response received within 60s - you can try again.")
+			m = m.appendEntry(errTag, "No response received within 120s - you can try again.")
 		}
 		return m, nil
 
