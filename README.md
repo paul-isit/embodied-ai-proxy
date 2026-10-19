@@ -336,7 +336,7 @@ A suite is a JSON file:
 - Expectations are checked after name resolution, so `"blu cube"` → `"blue_cube"` counts as correct.
 - A case can set its own `environment`, which replaces the suite's for that case.
 - `held_objects` is what the gripper holds (`[]` for nothing). Leave it out to tell the LLM it's unknown.
-- `-evalJSON <file>` also writes each case's raw result as JSON lines; `benchmark/` uses it to run cases repeatedly and compare prompt versions (see `benchmark/README.md`).
+- `-evalJSON <file>` also writes each case's raw result (output, parsed recipe, error, latency, pass/fail) as JSON lines, for other tools to score or aggregate.
 
 Full prompts and LLM responses are logged to `data/logs/eval.log`.
 

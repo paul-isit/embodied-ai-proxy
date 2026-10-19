@@ -59,7 +59,7 @@ type caseResult struct {
 // Run runs every suite through promptPipeline, writes a report to out and
 // returns the number of failed cases. A suite that can't be loaded counts as
 // one failure. If results isn't nil, each case's raw result is also written
-// to it as a JSON line, for tools such as benchmark/bench.py.
+// to it as a JSON line, for other tools to score or aggregate.
 func Run(ctx context.Context, promptPipeline *pipeline.Pipeline, model string, suitePaths []string, out, results io.Writer) int {
 	start := time.Now()
 	casesRun := 0
