@@ -111,21 +111,6 @@ func (server *AppServer) initialize() error {
 	return nil
 }
 
-// TODO implement this
-//func verifyDataDir(dir string) error {
-//	absDataDir, err := filepath.Abs(dir)
-//	if err != nil {
-//		return fmt.Errorf("get absolute path: %w", err)
-//	}
-//
-//	executablePath, err := os.Executable()
-//	if err != nil {
-//		return fmt.Errorf("get path to executable file: %w", err)
-//	}
-//
-//	return nil
-//}
-
 // Pipeline returns the prompt pipeline.
 func (server *AppServer) Pipeline() *pipeline.Pipeline {
 	return server.promptPipeline

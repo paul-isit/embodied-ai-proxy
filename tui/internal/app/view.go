@@ -134,8 +134,8 @@ func formatSystemInfo(msg SystemInfoMsg) string {
 	}
 }
 
-// helpText builds the F1 help message, listing every active keybinding
-// grouped by category.
+// helpText builds the /help message, listing the keys and the terminal UI
+// commands grouped by category.
 func helpText(verbosity int) string {
 	labels := map[int]string{1: "L1 - Filtered", 2: "L2 - Full Context", 3: "L3 - Debug"}
 	lines := []string{

@@ -22,11 +22,11 @@ type infoResponse struct {
 }
 
 // InfoHandler exposes GET /api/info: a single snapshot combining the
-// backend's own config, the LLM proxy's config, live hub stats, and the raw
-// system prompt template. Both configs come from the one shared
-// data/config/config.json, so no cross-service call to the LLM proxy is
-// needed. Powers the TUI's System Info / LLM Info / Copy-System-Prompt
-// features.
+// backend's own config, the LLM proxy's config with the API key left out, live
+// hub stats, and the raw system prompt template. Both configs come from the one
+// shared data/config/config.json, so no cross-service call to the LLM proxy is
+// needed. Powers the TUI's /system and /llm commands and the provider and
+// model in its header.
 func InfoHandler(cfg *sharedconfig.AppConfig, hub *websocket.Hub, p *pipeline.Pipeline) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		clients, bridgeConnected := hub.Stats()
