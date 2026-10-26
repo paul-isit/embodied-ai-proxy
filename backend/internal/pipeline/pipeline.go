@@ -25,10 +25,10 @@ type ROSBridge interface {
 	ExecuteRecipe(ctx context.Context, recipeJSON []byte) error
 }
 
-// Pipeline builds prompts from the system prompt template + schema +
-// available objects, dispatches them to the LLM proxy, and validates the
-// result against the action-recipe schema. Run is shared by the
-// WebSocket handler and -eval.
+// Pipeline builds prompts from the system prompt template, the schema and the
+// environment, dispatches them to the LLM proxy, validates the result against
+// the action-recipe schema, and resolves the names in it against the
+// environment. Run is shared by the WebSocket handler and -eval.
 type Pipeline struct {
 	hub          *websocket.Hub
 	bridge       ROSBridge
@@ -121,9 +121,11 @@ type Result struct {
 	Doc any `json:"-"`
 }
 
-// Run builds the prompt, dispatches it to the LLM proxy, and validates the
-// result. It does not touch the WebSocket hub - callers decide what to do
-// with the outcome.
+// Run builds the prompt, dispatches it to the LLM proxy, validates the result
+// and resolves the names in a recipe. If the model refuses with a
+// missing_object error that names exactly one registered object, it asks the
+// model once more with a correction. It does not touch the WebSocket hub -
+// callers decide what to do with the outcome.
 func (p *Pipeline) Run(ctx context.Context, userText string, environment rosbridge.EnvironmentParams) Result {
 	fullPrompt := p.buildPrompt(userText, environment)
 	log.Printf("[Pipeline] command received: %q", userText)

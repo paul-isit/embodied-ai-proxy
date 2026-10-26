@@ -16,9 +16,14 @@ const (
 	environmentRefreshTimeout = 5 * time.Second
 )
 
-// HandlePrompt implements websocket.PromptHandler: it runs the pipeline
-// using the environment object list from the robot bridge, delivers the action recipe
-// to the connected client upon successful robot execution, and dispatches it directly to the robot.
+// HandlePrompt implements websocket.PromptHandler. It refuses the command when
+// the ROS 2 bridge is not connected. Otherwise it reads the environment
+// (objects, movements, orientations, table bounds and held objects) from the
+// middleware, falling back to the cached lists if that fails, and runs the
+// pipeline. A recipe is executed on the robot, and the client receives it as an
+// action_recipe message once the robot has finished. An error document from the
+// model or from name resolution goes to the client as a log_event message, as
+// do pipeline and execution errors.
 func (p *Pipeline) HandlePrompt(ctx context.Context, userText string) {
 	if p.bridge != nil && !p.bridge.IsConnected() {
 		log.Printf("[Pipeline] rejecting command %q: no ROS 2 bridge connected", userText)

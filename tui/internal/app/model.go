@@ -19,9 +19,12 @@ import (
 	"github.com/atotto/clipboard"
 )
 
-// Model is the MVP root Bubble Tea model: it connects to the backend over
-// WebSocket, accepts a single-line natural language prompt, and prints the
-// raw backend response in a scrollable viewport.
+// Model is the root Bubble Tea model of the terminal UI. It keeps a WebSocket
+// connection to the backend and sends each command the user types as a
+// prompt_submit message. The log shows the recipes, results and errors that
+// come back, at one of three detail levels. Input that starts with "/" is a
+// terminal UI command (/help, /system, /scan and so on). A sidebar shows the
+// status of the middleware nodes and the status messages of the current command.
 type Model struct {
 	AppServerURL string
 	DataDir      string

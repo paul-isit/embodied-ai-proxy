@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-// SystemInfoMsg delivers the result of the initial GET /api/info call
+// SystemInfoMsg delivers the result of a GET /api/info call. Use says what
+// asked for it: "llm_header" for the provider and model shown in the header at
+// start-up, "system" or "llm" for the /system and /llm commands.
 type SystemInfoMsg struct {
 	Info *client.SystemInfo
 	Err  error
